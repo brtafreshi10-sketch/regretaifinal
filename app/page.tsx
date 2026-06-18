@@ -674,7 +674,7 @@ export default function Home() {
   function downloadAnalysis() {
     if (!result) return;
 
-    const payload = `RegretGPT Decision Report\n\nTitle: ${result.title}\nCategory: ${CATEGORY_LABELS[result.category]}\nRegret: ${result.regret_score}%\n\nNow:\n${result.immediate}\n\n1 Month:\n${result.one_month}\n\n1 Year:\n${result.one_year}\n\nAdvice:\n${result.advice}\n\nNote:\n${result.note ?? "(none)"}\n`;
+    const payload = `RegretAI Decision Report\n\nTitle: ${result.title}\nCategory: ${CATEGORY_LABELS[result.category]}\nRegret: ${result.regret_score}%\n\nNow:\n${result.immediate}\n\n1 Month:\n${result.one_month}\n\n1 Year:\n${result.one_year}\n\nAdvice:\n${result.advice}\n\nNote:\n${result.note ?? "(none)"}\n`;
     const blob = new Blob([payload], { type: "text/plain;charset=utf-8" });
     const href = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
@@ -727,7 +727,7 @@ export default function Home() {
 
   async function copyAnalysis() {
     if (!result) return;
-    const summary = `RegretGPT analysis for: ${result.title}\nNow: ${result.immediate}\n1 Month: ${result.one_month}\n1 Year: ${result.one_year}\nAdvice: ${result.advice}`;
+    const summary = `RegretAI analysis for: ${result.title}\nNow: ${result.immediate}\n1 Month: ${result.one_month}\n1 Year: ${result.one_year}\nAdvice: ${result.advice}`;
     try {
       await navigator.clipboard.writeText(summary);
       setCopyStatus("Copied to clipboard!");
@@ -738,10 +738,10 @@ export default function Home() {
 
   function shareAnalysis() {
     if (!result || typeof navigator === "undefined") return;
-    const summary = `RegretGPT analysis for: ${result.title}\nNow: ${result.immediate}\n1 Month: ${result.one_month}\n1 Year: ${result.one_year}\nAdvice: ${result.advice}`;
+    const summary = `RegretAI analysis for: ${result.title}\nNow: ${result.immediate}\n1 Month: ${result.one_month}\n1 Year: ${result.one_year}\nAdvice: ${result.advice}`;
     if (navigator.share) {
       navigator.share({
-        title: `RegretGPT analysis: ${result.title}`,
+        title: `RegretAI analysis: ${result.title}`,
         text: summary,
       });
     } else {
@@ -887,7 +887,7 @@ export default function Home() {
         <section className="infoCard">
           <h3>How this app works</h3>
           <p>
-            RegretGPT uses AI to help you think through outcomes and see what your decision may feel like over time. Use the history tools to compare past ideas and improve your decision process.
+            RegretAi uses AI to help you think through outcomes and see what your decision may feel like over time. Use the history tools to compare past ideas and improve your decision process.
           </p>
         </section>
 
