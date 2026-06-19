@@ -1311,11 +1311,19 @@ html.dark .page,
   margin-top: 0;
 }
 
+/* Analyze tab: always two equal columns, stretch to same height */
+.analyzeLayout {
+  align-items: stretch;
+}
+
 .inputColumn,
 .resultColumn {
   display: flex;
   flex-direction: column;
-  gap: 0;
+}
+
+.resultColumn {
+  height: 100%;
 }
 
 /* Tips card */
@@ -1348,7 +1356,7 @@ html.dark .page,
   border-color: var(--border);
 }
 
-/* Result placeholder */
+/* Result placeholder — stretches to fill right column */
 .resultPlaceholder {
   background: var(--surface);
   border: 2px dashed var(--border-color);
@@ -1358,7 +1366,8 @@ html.dark .page,
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 0;
+  flex: 1;
+  min-height: 320px;
   text-align: center;
 }
 
@@ -1380,6 +1389,19 @@ html.dark .page,
   font-size: 0.96rem;
   line-height: 1.6;
   margin: 0;
+}
+
+@media (max-width: 900px) {
+  .mainLayout,
+  .analyzeLayout {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .resultPlaceholder {
+    padding: 28px 20px;
+    min-height: 200px;
+  }
 }
 
 

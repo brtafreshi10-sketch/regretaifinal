@@ -891,7 +891,7 @@ export default function Home() {
                 {checkoutMessage}
               </section>
             )}
-            <div className={`mainLayout ${result ? "hasResult" : "noResult"}`}>
+            <div className="mainLayout analyzeLayout">
               {/* LEFT COLUMN */}
               <div className="inputColumn">
                 <section className="inputCard">
@@ -928,7 +928,7 @@ export default function Home() {
                       {loading ? "Analyzing..." : "Analyze decision"}
                     </button>
                     <button className="secondaryBtn" type="button" onClick={clearInput}>
-                      Clear input
+                      Clear
                     </button>
                   </div>
 
@@ -979,13 +979,13 @@ export default function Home() {
                 </section>
               </div>
 
-              {/* RIGHT COLUMN */}
-              {result && (
-                <div className="resultColumn">
+              {/* RIGHT COLUMN — always present */}
+              <div className="resultColumn">
+                {result ? (
                   <section className="resultSection">
                     <div className="resultActions">
-                      <button className="primaryBtn" onClick={copyAnalysis}>Copy result</button>
-                      <button className="secondaryBtn" type="button" onClick={downloadAnalysis}>Download report</button>
+                      <button className="primaryBtn" onClick={copyAnalysis}>Copy</button>
+                      <button className="secondaryBtn" type="button" onClick={downloadAnalysis}>Download</button>
                       <button className="secondaryBtn" type="button" onClick={shareAnalysis}>Share</button>
                       <button className="secondaryBtn" type="button" onClick={() => analyze(result.title)}>Re-run</button>
                     </div>
@@ -997,7 +997,7 @@ export default function Home() {
                         placeholder="Write a follow-up thought, reminder, or why this decision matters to you."
                         value={note}
                         setValue={setNote}
-                        rows={4}
+                        rows={3}
                       />
                       <div className="row actionRow">
                         <button className="primaryBtn" disabled={!result} onClick={saveNote}>
@@ -1008,8 +1008,28 @@ export default function Home() {
                     </div>
                     <ResultCard data={result} />
                   </section>
-                </div>
-              )}
+                ) : (
+                  <div className="resultPlaceholder">
+                    <div className="resultPlaceholderInner">
+                      <span className="resultPlaceholderIcon">{loading ? "⏳" : "🔮"}</span>
+                      <p>
+                        {loading
+                          ? "Analyzing your decision…"
+                          : "Your regret forecast will appear here after you analyze a decision."}
+                      </p>
+                      {!loading && (
+                        <button
+                          className="secondaryBtn"
+                          disabled={!text.trim() || !currentUserEmail}
+                          onClick={() => analyze()}
+                        >
+                          Analyze now
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </>
         )}
