@@ -854,7 +854,7 @@ export default function Home() {
           </div>
         </header>
 
-        <div className="mainLayout">
+        <div className={`mainLayout ${result ? "hasResult" : "noResult"}`}>
           {/* ── LEFT COLUMN: input + tips ── */}
           <div className="inputColumn">
         <section className="inputCard">
@@ -942,9 +942,9 @@ export default function Home() {
         </section>
           </div>{/* end inputColumn */}
 
-          {/* ── RIGHT COLUMN: result ── */}
-          <div className="resultColumn">
-            {result ? (
+          {/* ── RIGHT COLUMN: result (only rendered once an analysis exists) ── */}
+          {result && (
+            <div className="resultColumn">
               <section className="resultSection">
                 <div className="resultActions">
                   <button className="primaryBtn" onClick={copyAnalysis}>Copy result</button>
@@ -973,15 +973,8 @@ export default function Home() {
                 </div>
                 <ResultCard data={result} />
               </section>
-            ) : (
-              <div className="resultPlaceholder">
-                <div className="resultPlaceholderInner">
-                  <span className="resultPlaceholderIcon" aria-hidden="true">🔮</span>
-                  <p>Your analysis will appear here once you describe a decision and click <strong>Analyze decision</strong>.</p>
-                </div>
-              </div>
-            )}
-          </div>{/* end resultColumn */}
+            </div>
+          )}{/* end resultColumn */}
         </div>{/* end mainLayout */}
 
         {currentUserEmail && !currentUserPaid && (
