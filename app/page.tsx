@@ -2,13 +2,30 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createBrowserClient } from "@supabase/ssr";
+import type { Session, AuthChangeEvent } from "@supabase/supabase-js";
 import ResultCard from "@/components/ResultCard";
 import TextInput from "@/components/TextInput";
 
-const supabase = createBrowserClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+type SupabaseClient = ReturnType<typeof createBrowserClient>;
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+// Guard against missing env vars so a misconfiguration fails loudly in the
+// browser console instead of crashing the entire Next.js build during
+// prerendering. Make sure NEXT_PUBLIC_SUPABASE_URL and
+// NEXT_PUBLIC_SUPABASE_ANON_KEY are set in Vercel → Project Settings →
+// Environment Variables for every environment you deploy to, then redeploy.
+let supabase: SupabaseClient | null = null;
+
+if (supabaseUrl && supabaseAnonKey) {
+  supabase = createBrowserClient(supabaseUrl, supabaseAnonKey);
+} else {
+  // eslint-disable-next-line no-console
+  console.error(
+    "Supabase env vars are missing. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in your deployment environment."
+  );
+}
 
 type Result = {
   id: string;
@@ -130,8 +147,13 @@ export default function Home() {
 
   // ── Supabase auth listener ──
   useEffect(() => {
+    if (!supabase) {
+      console.error("Supabase client is not initialized. Check your environment variables.");
+      return;
+    }
+
     // Check existing session
-    supabase.auth.getSession().then(({ data }) => {
+    supabase.auth.getSession().then(({ data }: { data: { session: Session | null } }) => {
       const user = data.session?.user;
       if (user) {
         setCurrentUserId(user.id);
@@ -144,20 +166,22 @@ export default function Home() {
     });
 
     // Listen for auth changes (login, logout, token refresh)
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      const user = session?.user ?? null;
-      setCurrentUserId(user?.id ?? null);
-      setCurrentUserEmail(user?.email ?? null);
-      setCurrentUserName(user?.user_metadata?.displayName ?? null);
-      setCurrentUserPaid(Boolean(user?.user_metadata?.isPaid));
-      if (user) {
-        loadHistory(user.id);
-        loadDailyUsage(user.id);
-      } else {
-        setHistory([]);
-        setDailyUsage(0);
+    const { data: listener } = supabase.auth.onAuthStateChange(
+      (_event: AuthChangeEvent, session: Session | null) => {
+        const user = session?.user ?? null;
+        setCurrentUserId(user?.id ?? null);
+        setCurrentUserEmail(user?.email ?? null);
+        setCurrentUserName(user?.user_metadata?.displayName ?? null);
+        setCurrentUserPaid(Boolean(user?.user_metadata?.isPaid));
+        if (user) {
+          loadHistory(user.id);
+          loadDailyUsage(user.id);
+        } else {
+          setHistory([]);
+          setDailyUsage(0);
+        }
       }
-    });
+    );
 
     // Service worker
     if ("serviceWorker" in navigator) {
@@ -178,6 +202,7 @@ export default function Home() {
 
   // ── Load history from Supabase ──
   async function loadHistory(userId: string) {
+    if (!supabase) return;
     setHistoryLoading(true);
     try {
       const { data, error } = await supabase
@@ -187,7 +212,7 @@ export default function Home() {
         .order("created_at", { ascending: false });
       if (error) throw error;
       setHistory(
-        (data ?? []).map((row) => ({
+        (data ?? []).map((row: Record<string, any>) => ({
           id: row.id,
           title: row.title,
           immediate: row.immediate,
@@ -229,7 +254,7 @@ export default function Home() {
 
   // ── Save a decision to Supabase ──
   async function saveHistory(item: Result) {
-    if (!currentUserId) return;
+    if (!currentUserId || !supabase) return;
     const row = {
       id: item.id,
       user_id: currentUserId,
@@ -253,12 +278,13 @@ export default function Home() {
   async function deleteItem(id: string) {
     setHistory((prev) => prev.filter((item) => item.id !== id));
     if (result?.id === id) { setResult(null); setNote(""); setNoteStatus(""); }
+    if (!supabase) return;
     await supabase.from("decisions").delete().eq("id", id);
   }
 
   // ── Clear all history ──
   async function clearHistory() {
-    if (!currentUserId) return;
+    if (!currentUserId || !supabase) return;
     setHistory([]);
     await supabase.from("decisions").delete().eq("user_id", currentUserId);
   }
@@ -307,6 +333,7 @@ export default function Home() {
   // ── Auth: Sign up ──
   async function signup() {
     setError("");
+    if (!supabase) { setError("Authentication is not configured."); return; }
     const email = authEmail.trim().toLowerCase();
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setError("Please enter a valid email address."); return; }
     if (authName.trim().length < 2 || authName.trim().length > 30) { setError("Display name must be 2–30 characters."); return; }
@@ -329,6 +356,7 @@ export default function Home() {
   // ── Auth: Log in ──
   async function login() {
     setError("");
+    if (!supabase) { setError("Authentication is not configured."); return; }
     const email = authEmail.trim().toLowerCase();
     if (!email) { setError("Please enter your email."); return; }
     if (!authPassword) { setError("Please enter your password."); return; }
@@ -347,7 +375,7 @@ export default function Home() {
 
   // ── Auth: Log out ──
   async function logout() {
-    await supabase.auth.signOut();
+    if (supabase) await supabase.auth.signOut();
     setProfileMenuOpen(false);
     setResult(null);
     setNote("");
@@ -382,6 +410,7 @@ export default function Home() {
   }
 
   async function verifyCheckout(sessionId: string) {
+    if (!supabase) return;
     try {
       const response = await fetch(`/api/checkout/verify?session_id=${encodeURIComponent(sessionId)}`);
       const data = await response.json();
