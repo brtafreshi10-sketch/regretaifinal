@@ -10,6 +10,7 @@ type SupabaseClient = ReturnType<typeof createBrowserClient>;
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+console.log("URL:", process.env.NEXT_PUBLIC_SUPABASE_URL);
 
 // Guard against missing env vars so a misconfiguration fails loudly in the
 // browser console instead of crashing the entire Next.js build during
@@ -101,12 +102,16 @@ export default function Home() {
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
   const [currentUserName, setCurrentUserName] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
-  const [authModal, setAuthModal] = useState<null | "login" | "signup">(null);
+  const [authModal, setAuthModal] = useState<null | "login" | "signup" | "reset-password" | "phone">(null);
   const [authName, setAuthName] = useState("");
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [authConfirmPassword, setAuthConfirmPassword] = useState("");
   const [verificationStep, setVerificationStep] = useState(false);
+  const [resetEmailSent, setResetEmailSent] = useState(false);
+  const [authPhone, setAuthPhone] = useState("");
+  const [authOtp, setAuthOtp] = useState("");
+  const [phoneStep, setPhoneStep] = useState<"enter-phone" | "enter-otp">("enter-phone");
   const [currentUserPaid, setCurrentUserPaid] = useState(false);
   const [billingModal, setBillingModal] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState(PLANS[1]);
@@ -348,7 +353,7 @@ export default function Home() {
       options: { data: { displayName: authName.trim(), isPaid: false } },
     });
 
-    if (signUpError) { setError(signUpError.message); return; }
+    if (signUpError) { setError(signUpError.message ?? JSON.stringify(signUpError)); return; }
     // Supabase sends verification email automatically
     setVerificationStep(true);
   }
@@ -379,6 +384,44 @@ export default function Home() {
     setProfileMenuOpen(false);
     setResult(null);
     setNote("");
+  }
+
+  // ── Auth: Reset password ──
+  async function sendResetEmail() {
+    setError("");
+    if (!supabase) { setError("Authentication is not configured."); return; }
+    const email = authEmail.trim().toLowerCase();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setError("Please enter a valid email address."); return; }
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/reset-password`,
+    });
+    if (resetError) { setError(resetError.message); return; }
+    setResetEmailSent(true);
+  }
+
+  // ── Auth: Phone sign in — send OTP ──
+  async function sendPhoneOtp() {
+    setError("");
+    if (!supabase) { setError("Authentication is not configured."); return; }
+    const phone = authPhone.trim();
+    if (!phone) { setError("Please enter a phone number."); return; }
+    const { error: otpError } = await supabase.auth.signInWithOtp({ phone });
+    if (otpError) { setError(otpError.message); return; }
+    setPhoneStep("enter-otp");
+  }
+
+  // ── Auth: Phone sign in — verify OTP ──
+  async function verifyPhoneOtp() {
+    setError("");
+    if (!supabase) { setError("Authentication is not configured."); return; }
+    const { error: verifyError } = await supabase.auth.verifyOtp({
+      phone: authPhone.trim(),
+      token: authOtp.trim(),
+      type: "sms",
+    });
+    if (verifyError) { setError(verifyError.message); return; }
+    setAuthModal(null);
+    setAuthPhone(""); setAuthOtp(""); setPhoneStep("enter-phone");
   }
 
   // ── Billing ──
@@ -843,6 +886,54 @@ export default function Home() {
                     <button className="secondaryBtn" onClick={() => { setVerificationStep(false); setAuthModal(null); }}>Close</button>
                   </div>
                 </>
+              ) : authModal === "reset-password" ? (
+                <>
+                  <h3>Reset password</h3>
+                  {resetEmailSent ? (
+                    <>
+                      <p className="authHint">A password reset link was sent to <strong>{authEmail}</strong>. Check your inbox.</p>
+                      <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                        <button className="primaryBtn" onClick={() => { setResetEmailSent(false); setAuthModal("login"); }}>Back to login</button>
+                        <button className="secondaryBtn" onClick={() => { setResetEmailSent(false); setAuthModal(null); }}>Close</button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <p className="authHint">Enter your email and we'll send you a reset link.</p>
+                      <label>Email<input value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} type="email" /></label>
+                      {error && <div className="status error" role="alert">{error}</div>}
+                      <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                        <button className="primaryBtn" onClick={sendResetEmail}>Send reset link</button>
+                        <button className="secondaryBtn" onClick={() => { setAuthModal("login"); setError(""); }}>Back</button>
+                      </div>
+                    </>
+                  )}
+                </>
+              ) : authModal === "phone" ? (
+                <>
+                  <h3>Sign in with phone</h3>
+                  {phoneStep === "enter-phone" ? (
+                    <>
+                      <p className="authHint">Enter your phone number with country code (e.g. +1234567890).</p>
+                      <label>Phone number<input value={authPhone} onChange={(e) => setAuthPhone(e.target.value)} type="tel" placeholder="+1234567890" /></label>
+                      {error && <div className="status error" role="alert">{error}</div>}
+                      <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                        <button className="primaryBtn" onClick={sendPhoneOtp}>Send code</button>
+                        <button className="secondaryBtn" onClick={() => { setAuthModal("login"); setError(""); setAuthPhone(""); }}>Back</button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <p className="authHint">Enter the 6-digit code sent to <strong>{authPhone}</strong>.</p>
+                      <label>Verification code<input value={authOtp} onChange={(e) => setAuthOtp(e.target.value)} type="text" placeholder="123456" maxLength={6} /></label>
+                      {error && <div className="status error" role="alert">{error}</div>}
+                      <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                        <button className="primaryBtn" onClick={verifyPhoneOtp}>Verify</button>
+                        <button className="secondaryBtn" onClick={() => { setPhoneStep("enter-phone"); setAuthOtp(""); setError(""); }}>Back</button>
+                      </div>
+                    </>
+                  )}
+                </>
               ) : (
                 <>
                   <h3>{authModal === "signup" ? "Create an account" : "Log in"}</h3>
@@ -864,7 +955,15 @@ export default function Home() {
                   <p className="authHint">
                     {authModal === "signup"
                       ? "Password must be 8+ characters with upper/lowercase letters and a number."
-                      : <span>No account? <button className="linkButton" onClick={() => { setAuthModal("signup"); setError(""); }}>Sign up</button></span>}
+                      : (
+                        <span>
+                          No account? <button className="linkButton" onClick={() => { setAuthModal("signup"); setError(""); }}>Sign up</button>
+                          {" · "}
+                          <button className="linkButton" onClick={() => { setAuthModal("reset-password"); setError(""); }}>Forgot password?</button>
+                          {" · "}
+                          <button className="linkButton" onClick={() => { setAuthModal("phone"); setError(""); setPhoneStep("enter-phone"); }}>Use phone</button>
+                        </span>
+                      )}
                   </p>
                 </>
               )}
