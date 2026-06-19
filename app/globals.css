@@ -1382,14 +1382,150 @@ html.dark .page,
   margin: 0;
 }
 
-/* Responsive: stack on tablet and below */
-@media (max-width: 900px) {
-  .mainLayout {
-    grid-template-columns: 1fr;
-    gap: 16px;
+
+/* ── Tab navigation ── */
+.tabNav {
+  display: flex;
+  gap: 6px;
+  margin-top: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 28px;
+  padding: 6px;
+  box-shadow: var(--shadow);
+}
+
+.tabBtn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 12px 16px;
+  border-radius: 22px;
+  background: transparent;
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 0.92rem;
+  border: none;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+  white-space: nowrap;
+}
+
+.tabBtn:hover:not(.tabBtnActive) {
+  background: var(--surface-hover);
+  color: var(--text-color);
+  transform: none;
+  box-shadow: none;
+}
+
+.tabBtnActive {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: white !important;
+  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.28);
+}
+
+.tabBtnActive:hover {
+  transform: none;
+  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.28);
+}
+
+.tabBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255,255,255,0.3);
+  color: inherit;
+  font-size: 0.75rem;
+  font-weight: 800;
+  min-width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  padding: 0 5px;
+}
+
+.tabBtnActive .tabBadge {
+  background: rgba(255,255,255,0.25);
+}
+
+.tabBtn:not(.tabBtnActive) .tabBadge {
+  background: #6366f1;
+  color: white;
+}
+
+/* Tab content wrapper */
+.tabContent {
+  margin-top: 24px;
+}
+
+/* ── Settings page ── */
+.settingsGroup {
+  border-top: 1px solid var(--border-color);
+  padding-top: 20px;
+  margin-top: 20px;
+}
+
+.settingsGroup:first-of-type {
+  border-top: none;
+  padding-top: 0;
+  margin-top: 16px;
+}
+
+.settingsGroupLabel {
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 0 0 14px;
+}
+
+.settingsRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 10px 0;
+}
+
+.settingsRow + .settingsRow {
+  border-top: 1px solid var(--border-color);
+  margin-top: 4px;
+  padding-top: 14px;
+}
+
+.settingsRow > div > strong {
+  display: block;
+  font-size: 0.97rem;
+  color: var(--text-color);
+}
+
+.settingsRow > div > .sectionDescription {
+  margin-top: 3px;
+  font-size: 0.88rem;
+}
+
+.settingsRow > button,
+.settingsRow > div[style] {
+  flex-shrink: 0;
+}
+
+@media (max-width: 600px) {
+  .tabNav {
+    border-radius: 20px;
+    padding: 4px;
+    gap: 4px;
   }
 
-  .resultPlaceholder {
-    padding: 28px 20px;
+  .tabBtn {
+    padding: 10px 8px;
+    font-size: 0.8rem;
+    gap: 4px;
+  }
+
+  .settingsRow {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }

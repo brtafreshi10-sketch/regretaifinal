@@ -133,6 +133,7 @@ export default function Home() {
   const [hydrated, setHydrated] = useState(false);
   const [disclaimerDismissed, setDisclaimerDismissed] = useState(false);
   const [blockedWarning, setBlockedWarning] = useState(false);
+  const [activeTab, setActiveTab] = useState<"analyze" | "history" | "plans" | "settings">("analyze");
 
   useEffect(() => {
     if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
@@ -848,197 +849,401 @@ export default function Home() {
                 <button className="primaryBtn" onClick={() => setAuthModal('signup')}>Sign up</button>
               </>
             )}
-            <button className="settingsBtn" onClick={toggleTheme}>
-              {dark ? "☀️ Light" : "🌙 Dark"}
+            <button className="settingsBtn" onClick={() => setActiveTab("settings")}>
+              ⚙️
             </button>
           </div>
         </header>
 
-        <div className={`mainLayout ${result ? "hasResult" : "noResult"}`}>
-          {/* ── LEFT COLUMN: input + tips ── */}
-          <div className="inputColumn">
-        <section className="inputCard">
-          <div className="inputHeader">
-            <div>
-              <h2 className="sectionTitle">Describe your decision</h2>
-              <p className="sectionDescription">
-                Write your choice clearly and get a fast regret forecast plus actionable advice.
-              </p>
+        {/* ── Tab nav ── */}
+        <nav className="tabNav">
+          <button
+            className={`tabBtn ${activeTab === "analyze" ? "tabBtnActive" : ""}`}
+            onClick={() => setActiveTab("analyze")}
+          >
+            🔮 Analyze
+          </button>
+          <button
+            className={`tabBtn ${activeTab === "history" ? "tabBtnActive" : ""}`}
+            onClick={() => setActiveTab("history")}
+          >
+            📋 History {history.length > 0 && <span className="tabBadge">{history.length}</span>}
+          </button>
+          <button
+            className={`tabBtn ${activeTab === "plans" ? "tabBtnActive" : ""}`}
+            onClick={() => setActiveTab("plans")}
+          >
+            ⭐ Plans
+          </button>
+          <button
+            className={`tabBtn ${activeTab === "settings" ? "tabBtnActive" : ""}`}
+            onClick={() => setActiveTab("settings")}
+          >
+            ⚙️ Settings
+          </button>
+        </nav>
+
+        {/* ══════════════ ANALYZE TAB ══════════════ */}
+        {activeTab === "analyze" && (
+          <>
+            {checkoutMessage && (
+              <section className="status success checkoutMessage" style={{marginTop: 20}}>
+                {checkoutMessage}
+              </section>
+            )}
+            <div className={`mainLayout ${result ? "hasResult" : "noResult"}`}>
+              {/* LEFT COLUMN */}
+              <div className="inputColumn">
+                <section className="inputCard">
+                  <div className="inputHeader">
+                    <div>
+                      <h2 className="sectionTitle">Describe your decision</h2>
+                      <p className="sectionDescription">
+                        Write your choice clearly and get a fast regret forecast plus actionable advice.
+                      </p>
+                    </div>
+                    <span className="counter">{text.length}/300</span>
+                  </div>
+
+                  <TextInput
+                    placeholder="Example: Should I quit my job and try freelancing?"
+                    value={text}
+                    setValue={setText}
+                    maxLength={300}
+                    rows={6}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                        e.preventDefault();
+                        analyze();
+                      }
+                    }}
+                  />
+
+                  <div className="row actionRow">
+                    <button
+                      className="primaryBtn"
+                      disabled={!text.trim() || loading || !currentUserEmail}
+                      onClick={() => analyze()}
+                    >
+                      {loading ? "Analyzing..." : "Analyze decision"}
+                    </button>
+                    <button className="secondaryBtn" type="button" onClick={clearInput}>
+                      Clear input
+                    </button>
+                  </div>
+
+                  <div className="buttonGroup">
+                    {EXAMPLES.map((example) => (
+                      <button
+                        key={example}
+                        type="button"
+                        className="chip"
+                        onClick={() => analyze(example)}
+                        disabled={!currentUserEmail}
+                      >
+                        {example}
+                      </button>
+                    ))}
+                  </div>
+
+                  {!currentUserEmail ? (
+                    <div className="status warning">
+                      Sign in to access free daily analysis and saved history.
+                    </div>
+                  ) : !currentUserPaid ? (
+                    <div className="status warning">
+                      Free users get {dailyUsage}/{FREE_DAILY_LIMIT} analyses today. Upgrade to Premium for unlimited analysis and extended history.{" "}
+                      <button className="linkButton" type="button" onClick={() => setActiveTab("plans")}>
+                        View plans
+                      </button>
+                    </div>
+                  ) : null}
+
+                  {blockedWarning && (
+                    <div className="status error" role="alert">
+                      <strong>🚫 This request can't be analyzed.</strong> RegretAI is designed for everyday life decisions — not requests involving violence, self-harm, or harm to others. If you or someone you know is in crisis, please contact the <a href="https://988lifeline.org" target="_blank" rel="noopener noreferrer" style={{color:"inherit"}}>988 Suicide &amp; Crisis Lifeline</a> or emergency services.
+                    </div>
+                  )}
+
+                  {error && !blockedWarning && <div className="status error">{error}</div>}
+                </section>
+
+                <section className="tipsCard">
+                  <h3 className="sectionTitle">💡 Tips for a clearer analysis</h3>
+                  <ul className="tipsList">
+                    <li><strong>Be specific about the trade-off.</strong> Instead of "Should I move?", try "Should I move from Dallas to Austin for a $15k raise but leave my support network?"</li>
+                    <li><strong>Include your time horizon.</strong> Mention whether this is urgent or long-term — it shapes the regret forecast significantly.</li>
+                    <li><strong>Name what you value.</strong> Add context like "stability matters more to me than income" so the advice fits your priorities.</li>
+                    <li><strong>State the alternative.</strong> Every decision has an option B. Include it: "Stay at my current job vs. take the offer."</li>
+                  </ul>
+                </section>
+              </div>
+
+              {/* RIGHT COLUMN */}
+              {result && (
+                <div className="resultColumn">
+                  <section className="resultSection">
+                    <div className="resultActions">
+                      <button className="primaryBtn" onClick={copyAnalysis}>Copy result</button>
+                      <button className="secondaryBtn" type="button" onClick={downloadAnalysis}>Download report</button>
+                      <button className="secondaryBtn" type="button" onClick={shareAnalysis}>Share</button>
+                      <button className="secondaryBtn" type="button" onClick={() => analyze(result.title)}>Re-run</button>
+                    </div>
+                    {copyStatus && <div className="status success">{copyStatus}</div>}
+                    <div className="noteSection">
+                      <h3 className="sectionTitle">Personal note</h3>
+                      <TextInput
+                        className="noteTextarea"
+                        placeholder="Write a follow-up thought, reminder, or why this decision matters to you."
+                        value={note}
+                        setValue={setNote}
+                        rows={4}
+                      />
+                      <div className="row actionRow">
+                        <button className="primaryBtn" disabled={!result} onClick={saveNote}>
+                          Save note
+                        </button>
+                        {noteStatus && <span className="status success">{noteStatus}</span>}
+                      </div>
+                    </div>
+                    <ResultCard data={result} />
+                  </section>
+                </div>
+              )}
             </div>
-            <span className="counter">{text.length}/300</span>
+          </>
+        )}
+
+        {/* ══════════════ HISTORY TAB ══════════════ */}
+        {activeTab === "history" && (
+          <div className="tabContent">
+            <section className="statsGrid">
+              <article className="statCard">
+                <span className="statLabel">Decisions tracked</span>
+                <strong>{hydrated ? stats.total : 0}</strong>
+              </article>
+              <article className="statCard">
+                <span className="statLabel">Average regret</span>
+                <strong>{hydrated ? `${stats.average}%` : "0%"}</strong>
+              </article>
+              <article className="statCard">
+                <span className="statLabel">Most recent</span>
+                <strong>{hydrated ? (stats.latest ? formatDate(stats.latest) : "None yet") : "Loading…"}</strong>
+              </article>
+            </section>
+
+            <section className="historyPanel">
+              <div className="historyHeader">
+                <div>
+                  <h3>Recent decisions</h3>
+                  <p className="historyMeta">Filter, search, and reopen any saved analysis.</p>
+                </div>
+                <button className="secondaryBtn" type="button" onClick={clearHistory}>
+                  🗑️ Clear history
+                </button>
+              </div>
+
+              <div className="filterRow">
+                <div className="buttonGroup">
+                  {Object.entries(CATEGORY_LABELS).map(([key, label]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      className={`pill ${categoryFilter === key ? "active" : ""}`}
+                      onClick={() => setCategoryFilter(key as typeof categoryFilter)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <input
+                  type="search"
+                  className="searchInput"
+                  placeholder="Search history..."
+                  value={historySearch}
+                  onChange={(e) => setHistorySearch(e.target.value)}
+                />
+              </div>
+
+              <div className="historyList">
+                {filteredHistory.length === 0 ? (
+                  <div className="emptyState">No saved decisions match your filters.</div>
+                ) : (
+                  filteredHistory.map((item) => (
+                    <div key={item.id} className="historyItem">
+                      <button
+                        type="button"
+                        className="historyLink"
+                        onClick={() => { handleHistorySelect(item); setActiveTab("analyze"); }}
+                      >
+                        <div>
+                          <strong>{item.title}</strong>
+                          <div className="historyMeta">{CATEGORY_LABELS[item.category]} · {formatDate(item.createdAt)}</div>
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        className="deleteBtn"
+                        aria-label={`Delete ${item.title}`}
+                        onClick={() => deleteItem(item.id)}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </section>
           </div>
+        )}
 
-          <TextInput
-            placeholder="Example: Should I quit my job and try freelancing?"
-            value={text}
-            setValue={setText}
-            maxLength={300}
-            rows={6}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                e.preventDefault();
-                analyze();
-              }
-            }}
-          />
+        {/* ══════════════ PLANS TAB ══════════════ */}
+        {activeTab === "plans" && (
+          <div className="tabContent">
+            {checkoutMessage && (
+              <section className="status success checkoutMessage" style={{marginBottom: 20}}>
+                {checkoutMessage}
+              </section>
+            )}
 
-          <div className="row actionRow">
-            <button
-              className="primaryBtn"
-              disabled={!text.trim() || loading || !currentUserEmail}
-              onClick={() => analyze()}
-            >
-              {loading ? "Analyzing..." : "Analyze decision"}
-            </button>
-            <button className="secondaryBtn" type="button" onClick={clearInput}>
-              Clear input
-            </button>
+            {currentUserEmail && currentUserPaid ? (
+              <section className="billingPromoCard premiumActive">
+                <h3>Premium account active ★</h3>
+                <p>You have full access to analysis and extended history. Thank you for subscribing.</p>
+                <div className="billingPlanSummary">
+                  <strong>{PREMIUM_PLAN.price}</strong>
+                  <span>{PREMIUM_PLAN.description}</span>
+                </div>
+              </section>
+            ) : (
+              <section className="billingPromoCard">
+                <h3>Choose Your Plan</h3>
+                <p style={{color: "var(--text-muted)", margin: "8px 0 4px"}}>Unlock unlimited analysis, extended history, and priority results. Cancel anytime.</p>
+                <div className="planGrid">
+                  {PLANS.map((plan) => (
+                    <div
+                      key={plan.name}
+                      className={`planCard ${selectedPlan.name === plan.name ? "planCardSelected" : ""} ${plan.recommended ? "planCardRecommended" : ""}`}
+                      onClick={() => setSelectedPlan(plan)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => e.key === "Enter" && setSelectedPlan(plan)}
+                    >
+                      {plan.recommended && <div className="planBadge">Most Popular</div>}
+                      <strong className="planName">{plan.name}</strong>
+                      <div className="planPrice">{plan.price}</div>
+                      <p className="planDesc">{plan.description}</p>
+                      <ul className="billingFeatures">
+                        {plan.features.map((f) => <li key={f}>{f}</li>)}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+                {!currentUserEmail && (
+                  <div className="status warning" style={{marginBottom: 12}}>
+                    You need to be signed in to upgrade. Use the Log in or Sign up buttons in the header.
+                  </div>
+                )}
+                <button
+                  className="primaryBtn"
+                  type="button"
+                  onClick={openBillingModal}
+                  disabled={!currentUserEmail}
+                  style={{ width: "100%", marginTop: 8 }}
+                >
+                  Continue with {selectedPlan.name} — {selectedPlan.price}
+                </button>
+              </section>
+            )}
           </div>
+        )}
 
-          <div className="buttonGroup">
-            {EXAMPLES.map((example) => (
-              <button
-                key={example}
-                type="button"
-                className="chip"
-                onClick={() => analyze(example)}
-                disabled={!currentUserEmail}
-              >
-                {example}
-              </button>
-            ))}
-          </div>
+        {/* ══════════════ SETTINGS TAB ══════════════ */}
+        {activeTab === "settings" && (
+          <div className="tabContent">
+            <section className="inputCard">
+              <h2 className="sectionTitle">Settings</h2>
 
-          {!currentUserEmail ? (
-            <div className="status warning">
-              Sign in to access free daily analysis and saved history.
-            </div>
-          ) : !currentUserPaid ? (
-            <div className="status warning">
-              Free users get {dailyUsage}/{FREE_DAILY_LIMIT} analyses today. Upgrade to Premium for unlimited analysis and extended history.              <button className="linkButton" type="button" onClick={openBillingModal}>
-                View plans
-              </button>
-            </div>
-          ) : null}
-
-          {blockedWarning && (
-            <div className="status error" role="alert">
-              <strong>🚫 This request can't be analyzed.</strong> RegretAI is designed for everyday life decisions — not requests involving violence, self-harm, or harm to others. If you or someone you know is in crisis, please contact the <a href="https://988lifeline.org" target="_blank" rel="noopener noreferrer" style={{color:"inherit"}}>988 Suicide &amp; Crisis Lifeline</a> or emergency services.
-            </div>
-          )}
-
-          {error && !blockedWarning && <div className="status error">{error}</div>}
-        </section>
-
-        {/* ── Tips for better results ── */}
-        <section className="tipsCard">
-          <h3 className="sectionTitle">💡 Tips for a clearer analysis</h3>
-          <ul className="tipsList">
-            <li><strong>Be specific about the trade-off.</strong> Instead of "Should I move?", try "Should I move from Dallas to Austin for a $15k raise but leave my support network?"</li>
-            <li><strong>Include your time horizon.</strong> Mention whether this is urgent or long-term — it shapes the regret forecast significantly.</li>
-            <li><strong>Name what you value.</strong> Add context like "stability matters more to me than income" so the advice fits your priorities.</li>
-            <li><strong>State the alternative.</strong> Every decision has an option B. Include it: "Stay at my current job vs. take the offer."</li>
-          </ul>
-        </section>
-          </div>{/* end inputColumn */}
-
-          {/* ── RIGHT COLUMN: result (only rendered once an analysis exists) ── */}
-          {result && (
-            <div className="resultColumn">
-              <section className="resultSection">
-                <div className="resultActions">
-                  <button className="primaryBtn" onClick={copyAnalysis}>Copy result</button>
-                  <button className="secondaryBtn" type="button" onClick={downloadAnalysis}>Download report</button>
-                  <button className="secondaryBtn" type="button" onClick={shareAnalysis}>Share</button>
-                  <button className="secondaryBtn" type="button" onClick={() => analyze(result.title)}>
-                    Re-run
+              <div className="settingsGroup">
+                <div className="settingsRow">
+                  <div>
+                    <strong>Theme</strong>
+                    <p className="sectionDescription">Switch between light and dark mode.</p>
+                  </div>
+                  <button className="secondaryBtn" onClick={toggleTheme}>
+                    {dark ? "☀️ Switch to Light" : "🌙 Switch to Dark"}
                   </button>
                 </div>
-                {copyStatus && <div className="status success">{copyStatus}</div>}
-                <div className="noteSection">
-                  <h3 className="sectionTitle">Personal note</h3>
-                  <TextInput
-                    className="noteTextarea"
-                    placeholder="Write a follow-up thought, reminder, or why this decision matters to you."
-                    value={note}
-                    setValue={setNote}
-                    rows={4}
-                  />
-                  <div className="row actionRow">
-                    <button className="primaryBtn" disabled={!result} onClick={saveNote}>
-                      Save note
-                    </button>
-                    {noteStatus && <span className="status success">{noteStatus}</span>}
+              </div>
+
+              <div className="settingsGroup">
+                <h3 className="settingsGroupLabel">Account</h3>
+                {currentUserEmail ? (
+                  <>
+                    <div className="settingsRow">
+                      <div>
+                        <strong>{currentUserName ?? currentUserEmail}</strong>
+                        <p className="sectionDescription">{currentUserEmail} · {currentUserPaid ? "Premium ★" : "Free account"}</p>
+                      </div>
+                      <button className="secondaryBtn" onClick={logout}>Log out</button>
+                    </div>
+                    {!currentUserPaid && (
+                      <div className="settingsRow">
+                        <div>
+                          <strong>Upgrade to Premium</strong>
+                          <p className="sectionDescription">Unlock unlimited analyses, extended history, and more.</p>
+                        </div>
+                        <button className="primaryBtn" onClick={() => setActiveTab("plans")}>View Plans</button>
+                      </div>
+                    )}
+                    <div className="settingsRow">
+                      <div>
+                        <strong>Daily usage</strong>
+                        <p className="sectionDescription">{currentUserPaid ? "Unlimited analyses" : `${dailyUsage} of ${FREE_DAILY_LIMIT} free analyses used today`}</p>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="settingsRow">
+                    <div>
+                      <strong>Not signed in</strong>
+                      <p className="sectionDescription">Sign in to save history and access analysis.</p>
+                    </div>
+                    <div style={{display: "flex", gap: 8}}>
+                      <button className="secondaryBtn" onClick={() => setAuthModal("login")}>Log in</button>
+                      <button className="primaryBtn" onClick={() => setAuthModal("signup")}>Sign up</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="settingsGroup">
+                <h3 className="settingsGroupLabel">Data</h3>
+                <div className="settingsRow">
+                  <div>
+                    <strong>Decision history</strong>
+                    <p className="sectionDescription">{history.length} saved {history.length === 1 ? "decision" : "decisions"} stored locally on this device.</p>
+                  </div>
+                  <button className="secondaryBtn" onClick={clearHistory} disabled={history.length === 0}>
+                    🗑️ Clear all history
+                  </button>
+                </div>
+              </div>
+
+              <div className="settingsGroup">
+                <h3 className="settingsGroupLabel">About</h3>
+                <div className="settingsRow">
+                  <div>
+                    <strong>RegretAI</strong>
+                    <p className="sectionDescription">Simulate how a decision feels today, in one month, and in one year. For informational purposes only — not a substitute for professional advice.</p>
                   </div>
                 </div>
-                <ResultCard data={result} />
-              </section>
-            </div>
-          )}{/* end resultColumn */}
-        </div>{/* end mainLayout */}
-
-        {currentUserEmail && !currentUserPaid && (
-         <section className="billingPromoCard">
-  <h3>Choose Your Plan</h3>
-
-  <div className="planGrid">
-    {PLANS.map((plan) => (
-      <div
-        key={plan.name}
-        className={`planCard ${
-          selectedPlan.name === plan.name ? "planCardSelected" : ""
-        } ${plan.recommended ? "planCardRecommended" : ""}`}
-        onClick={() => setSelectedPlan(plan)}
-      >
-        {plan.recommended && (
-          <div className="planBadge">Most Popular</div>
-        )}
-
-        <strong className="planName">{plan.name}</strong>
-
-        <div className="planPrice">{plan.price}</div>
-
-        <p className="planDesc">{plan.description}</p>
-
-        <ul className="billingFeatures">
-          {plan.features.map((feature) => (
-            <li key={feature}>{feature}</li>
-          ))}
-        </ul>
-      </div>
-    ))}
-  </div>
-
-  <button
-    className="primaryBtn"
-    type="button"
-    onClick={openBillingModal}
-    style={{ width: "100%", marginTop: 20 }}
-  >
-    Continue with {selectedPlan.name}
-  </button>
-</section>
-        )}
-
-        {currentUserEmail && currentUserPaid && (
-          <section className="billingPromoCard premiumActive">
-            <div>
-              <h3>Premium account active</h3>
-              <p>You have full access to analysis and extended history. Thank you for subscribing.</p>
-              <div className="billingPlanSummary">
-                <strong>{PREMIUM_PLAN.price}</strong>
-                <span>{PREMIUM_PLAN.description}</span>
               </div>
-            </div>
-          </section>
+            </section>
+          </div>
         )}
 
-        {checkoutMessage && (
-          <section className="status success checkoutMessage">
-            {checkoutMessage}
-          </section>
-        )}
-
+        {/* ══════════════ MODALS (always rendered) ══════════════ */}
         {authModal && (
           <div className="authOverlay" role="dialog" aria-modal="true">
             <div className="authModal">
@@ -1144,84 +1349,6 @@ export default function Home() {
             </div>
           </div>
         )}
-
-        <section className="statsGrid">
-          <article className="statCard">
-            <span className="statLabel">Decisions tracked</span>
-            <strong>{hydrated ? stats.total : 0}</strong>
-          </article>
-          <article className="statCard">
-            <span className="statLabel">Average regret</span>
-            <strong>{hydrated ? `${stats.average}%` : "0%"}</strong>
-          </article>
-          <article className="statCard">
-            <span className="statLabel">Most recent</span>
-            <strong>{hydrated ? (stats.latest ? formatDate(stats.latest) : "None yet") : "Loading…"}</strong>
-          </article>
-        </section>
-
-        <section className="historyPanel">
-          <div className="historyHeader">
-            <div>
-              <h3>Recent decisions</h3>
-              <p className="historyMeta">Filter, search, and reopen any saved analysis.</p>
-            </div>
-            <button className="secondaryBtn" type="button" onClick={clearHistory}>
-              🗑️ Clear history
-            </button>
-          </div>
-
-          <div className="filterRow">
-            <div className="buttonGroup">
-              {Object.entries(CATEGORY_LABELS).map(([key, label]) => (
-                <button
-                  key={key}
-                  type="button"
-                  className={`pill ${categoryFilter === key ? "active" : ""}`}
-                  onClick={() => setCategoryFilter(key as typeof categoryFilter)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <input
-              type="search"
-              className="searchInput"
-              placeholder="Search history..."
-              value={historySearch}
-              onChange={(e) => setHistorySearch(e.target.value)}
-            />
-          </div>
-
-          <div className="historyList">
-            {filteredHistory.length === 0 ? (
-              <div className="emptyState">No saved decisions match your filters.</div>
-            ) : (
-              filteredHistory.map((item) => (
-                <div key={item.id} className="historyItem">
-                  <button
-                    type="button"
-                    className="historyLink"
-                    onClick={() => handleHistorySelect(item)}
-                  >
-                    <div>
-                      <strong>{item.title}</strong>
-                      <div className="historyMeta">{CATEGORY_LABELS[item.category]} · {formatDate(item.createdAt)}</div>
-                    </div>
-                  </button>
-                  <button
-                    type="button"
-                    className="deleteBtn"
-                    aria-label={`Delete ${item.title}`}
-                    onClick={() => deleteItem(item.id)}
-                  >
-                    ✕
-                  </button>
-                </div>
-              ))
-            )}
-          </div>
-        </section>
       </div>
     </div>
   );
