@@ -1,8 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { createBrowserClient } from "@supabase/ssr";
 import ResultCard from "@/components/ResultCard";
 import TextInput from "@/components/TextInput";
+
+const supabase = createBrowserClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 type Result = {
   id: string;
@@ -17,22 +23,6 @@ type Result = {
   createdAt?: string;
 };
 
-type UserRecord = {
-  password: string;
-  createdAt: string;
-  displayName: string;
-  isPaid: boolean;
-  subscriptionDate?: string;
-};
-
-type UserSummary = {
-  email: string;
-  displayName: string;
-  createdAt: string;
-  isPaid: boolean;
-  subscriptionDate?: string;
-};
-
 const CATEGORY_LABELS: Record<Result["category"] | "all", string> = {
   all: "All",
   money: "Money",
@@ -44,7 +34,6 @@ const CATEGORY_LABELS: Record<Result["category"] | "all", string> = {
 
 const FREE_DAILY_LIMIT = 5;
 
-// Keywords that trigger the violence/harm filter
 const BLOCKED_PATTERNS = [
   /\b(kill|murder|shoot|stab|attack|harm|hurt|assault|beat up|destroy|blow up|bomb|poison|strangle|choke|suffocate|rape|abuse)\b/i,
   /\b(suicide|self.harm|cut myself|end my life|kill myself)\b/i,
@@ -60,33 +49,20 @@ const PLANS = [
     name: "Basic",
     price: "$2/mo",
     description: "Great for occasional decision-making with essential AI forecasting.",
-    features: [
-      "10 saved decisions",
-      "Standard AI requests",
-      "Email support",
-    ],
+    features: ["10 saved decisions", "Standard AI requests", "Email support"],
   },
   {
     name: "Premium",
     price: "$5/mo",
     description: "Best value — unlimited analysis, extended history, and priority results.",
-    features: [
-      "50 saved decisions",
-      "Priority AI requests",
-      "Premium support",
-    ],
+    features: ["50 saved decisions", "Priority AI requests", "Premium support"],
     recommended: true,
   },
   {
     name: "Pro",
     price: "$12/mo",
     description: "For power users who need maximum history, fastest responses, and full export tools.",
-    features: [
-      "Unlimited saved decisions",
-      "Fastest AI priority",
-      "Dedicated support",
-      "CSV export of all history",
-    ],
+    features: ["Unlimited saved decisions", "Fastest AI priority", "Dedicated support", "CSV export of all history"],
   },
 ];
 
@@ -107,15 +83,13 @@ export default function Home() {
   const [error, setError] = useState("");
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
   const [currentUserName, setCurrentUserName] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [authModal, setAuthModal] = useState<null | "login" | "signup">(null);
   const [authName, setAuthName] = useState("");
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [authConfirmPassword, setAuthConfirmPassword] = useState("");
   const [verificationStep, setVerificationStep] = useState(false);
-  const [verificationCode, setVerificationCode] = useState("");
-  const [enteredCode, setEnteredCode] = useState("");
-  const [verificationError, setVerificationError] = useState("");
   const [currentUserPaid, setCurrentUserPaid] = useState(false);
   const [billingModal, setBillingModal] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState(PLANS[1]);
@@ -124,7 +98,6 @@ export default function Home() {
   const [checkoutMessage, setCheckoutMessage] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<"all" | Result["category"]>("all");
   const [historySearch, setHistorySearch] = useState("");
-  const [profiles, setProfiles] = useState<UserSummary[]>([]);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [copyStatus, setCopyStatus] = useState("");
   const [note, setNote] = useState("");
@@ -134,200 +107,174 @@ export default function Home() {
   const [disclaimerDismissed, setDisclaimerDismissed] = useState(false);
   const [blockedWarning, setBlockedWarning] = useState(false);
   const [activeTab, setActiveTab] = useState<"analyze" | "history" | "plans" | "settings">("analyze");
+  const [historyLoading, setHistoryLoading] = useState(false);
 
+  // ── Theme init ──
   useEffect(() => {
-    if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
-
-    const savedUser = localStorage.getItem("regret-current-user");
-    if (savedUser) setCurrentUserEmail(savedUser);
     const savedTheme = localStorage.getItem("theme");
-    const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-    const savedUsers = getUsers();
-    const userList = Object.entries(savedUsers).map(([email, data]) => ({
-      email,
-      displayName: data.displayName,
-      createdAt: data.createdAt,
-      isPaid: Boolean(data.isPaid),
-      subscriptionDate: data.subscriptionDate,
-    }));
-    setProfiles(userList);
-
-    if (savedUser && savedUsers[savedUser]) {
-      setCurrentUserName(savedUsers[savedUser].displayName);
-      setCurrentUserPaid(Boolean(savedUsers[savedUser].isPaid));
-      loadDailyUsage(savedUser);
-    }
-
-    const historyKey = `regret-history-${savedUser ?? "public"}`;
-    const savedHistory = localStorage.getItem(historyKey);
-
-    if (process.env.NODE_ENV === "production") {
-      navigator.serviceWorker
-        .register("/sw.js")
-        .catch((error) => console.warn("Service worker registration failed:", error));
-    } else {
-      navigator.serviceWorker.getRegistrations().then((registrations) => {
-        registrations.forEach((registration) => registration.unregister());
-      });
-    }
-
-    window.requestAnimationFrame(() => {
-      if (savedHistory) {
-        try {
-          const parsed = JSON.parse(savedHistory);
-          if (Array.isArray(parsed)) {
-            setHistory(parsed);
-          }
-        } catch {
-          localStorage.removeItem("regret-history");
-        }
-      }
-
-      const htmlClass = document.documentElement.classList;
-      if (savedTheme === 'dark' || savedTheme === 'light') {
-        const isDark = savedTheme === "dark";
-        setDark(isDark);
-        if (isDark) {
-          htmlClass.add('dark');
-        } else {
-          htmlClass.remove('dark');
-        }
-      } else {
-        setDark(prefersDark);
-        if (prefersDark) {
-          htmlClass.add('dark');
-        } else {
-          htmlClass.remove('dark');
-        }
-      }
-      setHydrated(true);
-    });
+    const prefersDark = window.matchMedia?.("(prefers-color-scheme: dark)").matches;
+    const htmlClass = document.documentElement.classList;
+    const isDark = savedTheme === "dark" || (!savedTheme && prefersDark);
+    setDark(isDark);
+    htmlClass.toggle("dark", isDark);
+    setHydrated(true);
   }, []);
 
+  // ── Theme color meta tag ──
   useEffect(() => {
-    // Update mobile/browser UI color for theme
     try {
-      const meta = document.querySelector('meta[name="theme-color"]');
-      if (meta) {
-        meta.setAttribute('content', dark ? '#0f172a' : '#6366f1');
-      }
-      const apple = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
-      if (apple) {
-        apple.setAttribute('content', dark ? 'black-translucent' : 'default');
-      }
-    } catch (e) {
-      // ignore in SSR or restricted contexts
-    }
+      document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? "#0f172a" : "#6366f1");
+      document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')?.setAttribute("content", dark ? "black-translucent" : "default");
+    } catch {}
   }, [dark]);
 
-  function normalizeEmail(email: string) {
-    return email.trim().toLowerCase();
-  }
+  // ── Supabase auth listener ──
+  useEffect(() => {
+    // Check existing session
+    supabase.auth.getSession().then(({ data }) => {
+      const user = data.session?.user;
+      if (user) {
+        setCurrentUserId(user.id);
+        setCurrentUserEmail(user.email ?? null);
+        setCurrentUserName(user.user_metadata?.displayName ?? null);
+        setCurrentUserPaid(Boolean(user.user_metadata?.isPaid));
+        loadHistory(user.id);
+        loadDailyUsage(user.id);
+      }
+    });
 
-  function getUsers(): Record<string, UserRecord> {
-    try {
-      const raw = localStorage.getItem("regret-users");
-      return raw ? JSON.parse(raw) : {};
-    } catch {
-      return {};
-    }
-  }
-
-  function saveUsers(u: Record<string, UserRecord>) {
-    localStorage.setItem("regret-users", JSON.stringify(u));
-  }
-
-  function getUsageKey(email: string | null) {
-    return `regret-daily-usage-${email ?? "public"}`;
-  }
-
-  function loadHistoryForUser(email: string | null) {
-    if (typeof window === "undefined") return;
-    const key = `regret-history-${email ?? "public"}`;
-    const raw = localStorage.getItem(key);
-    if (!raw) {
-      setHistory([]);
-      return;
-    }
-    try {
-      const parsed = JSON.parse(raw);
-      setHistory(Array.isArray(parsed) ? parsed : []);
-    } catch {
-      setHistory([]);
-    }
-  }
-
-  function loadDailyUsage(email: string | null) {
-    if (typeof window === "undefined") return;
-    const key = getUsageKey(email);
-    const raw = localStorage.getItem(key);
-    const today = new Date().toISOString().slice(0, 10);
-    if (!raw) {
-      setDailyUsage(0);
-      return;
-    }
-
-    try {
-      const parsed = JSON.parse(raw);
-      if (parsed?.date === today && typeof parsed.count === "number") {
-        setDailyUsage(parsed.count);
+    // Listen for auth changes (login, logout, token refresh)
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      const user = session?.user ?? null;
+      setCurrentUserId(user?.id ?? null);
+      setCurrentUserEmail(user?.email ?? null);
+      setCurrentUserName(user?.user_metadata?.displayName ?? null);
+      setCurrentUserPaid(Boolean(user?.user_metadata?.isPaid));
+      if (user) {
+        loadHistory(user.id);
+        loadDailyUsage(user.id);
       } else {
+        setHistory([]);
         setDailyUsage(0);
       }
-    } catch {
-      setDailyUsage(0);
+    });
+
+    // Service worker
+    if ("serviceWorker" in navigator) {
+      if (process.env.NODE_ENV === "production") {
+        navigator.serviceWorker.register("/sw.js").catch(console.warn);
+      } else {
+        navigator.serviceWorker.getRegistrations().then((regs) => regs.forEach((r) => r.unregister()));
+      }
+    }
+
+    // Stripe session check
+    const params = new URLSearchParams(window.location.search);
+    const sessionId = params.get("session_id");
+    if (sessionId) verifyCheckout(sessionId);
+
+    return () => { listener.subscription.unsubscribe(); };
+  }, []);
+
+  // ── Load history from Supabase ──
+  async function loadHistory(userId: string) {
+    setHistoryLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from("decisions")
+        .select("*")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      setHistory(
+        (data ?? []).map((row) => ({
+          id: row.id,
+          title: row.title,
+          immediate: row.immediate,
+          one_month: row.one_month,
+          one_year: row.one_year,
+          regret_score: row.regret_score,
+          advice: row.advice,
+          category: row.category,
+          note: row.note ?? undefined,
+          createdAt: row.created_at,
+        }))
+      );
+    } catch (err) {
+      console.error("Failed to load history:", err);
+    } finally {
+      setHistoryLoading(false);
     }
   }
 
-  function saveDailyUsage(email: string | null, count: number) {
-    if (typeof window === "undefined") return;
-    const key = getUsageKey(email);
-    localStorage.setItem(key, JSON.stringify({ date: new Date().toISOString().slice(0, 10), count }));
+  // ── Daily usage (still localStorage — just a counter, not sensitive) ──
+  function getUsageKey(userId: string) {
+    return `regret-daily-usage-${userId}`;
   }
 
-  function saveHistory(item: Result) {
-    const entry = {
-      ...item,
-      createdAt: item.createdAt ?? new Date().toISOString(),
+  function loadDailyUsage(userId: string) {
+    const key = getUsageKey(userId);
+    const raw = localStorage.getItem(key);
+    const today = new Date().toISOString().slice(0, 10);
+    if (!raw) { setDailyUsage(0); return; }
+    try {
+      const parsed = JSON.parse(raw);
+      setDailyUsage(parsed?.date === today && typeof parsed.count === "number" ? parsed.count : 0);
+    } catch { setDailyUsage(0); }
+  }
+
+  function saveDailyUsage(userId: string, count: number) {
+    localStorage.setItem(getUsageKey(userId), JSON.stringify({ date: new Date().toISOString().slice(0, 10), count }));
+  }
+
+  // ── Save a decision to Supabase ──
+  async function saveHistory(item: Result) {
+    if (!currentUserId) return;
+    const row = {
+      id: item.id,
+      user_id: currentUserId,
+      title: item.title,
+      immediate: item.immediate,
+      one_month: item.one_month,
+      one_year: item.one_year,
+      regret_score: item.regret_score,
+      advice: item.advice,
+      category: item.category,
+      note: item.note ?? null,
+      created_at: item.createdAt ?? new Date().toISOString(),
     };
-
-    setHistory((current) => {
-      const maxEntries = currentUserPaid ? 50 : 10;
-      const next = [entry, ...current.filter((historyItem) => historyItem.id !== entry.id)].slice(0, maxEntries);
-      if (typeof window !== "undefined") {
-        const key = `regret-history-${currentUserEmail ?? "public"}`;
-        localStorage.setItem(key, JSON.stringify(next));
-      }
-      return next;
-    });
+    const { error } = await supabase.from("decisions").upsert(row);
+    if (error) console.error("Failed to save decision:", error);
+    // Optimistic local update
+    setHistory((prev) => [item, ...prev.filter((h) => h.id !== item.id)]);
   }
 
+  // ── Delete a decision ──
+  async function deleteItem(id: string) {
+    setHistory((prev) => prev.filter((item) => item.id !== id));
+    if (result?.id === id) { setResult(null); setNote(""); setNoteStatus(""); }
+    await supabase.from("decisions").delete().eq("id", id);
+  }
+
+  // ── Clear all history ──
+  async function clearHistory() {
+    if (!currentUserId) return;
+    setHistory([]);
+    await supabase.from("decisions").delete().eq("user_id", currentUserId);
+  }
+
+  // ── Analyze ──
   async function analyze(input?: string) {
     const value = input ?? text;
-    if (!currentUserEmail) {
-      setError("Please sign in to analyze decisions.");
-      return;
-    }
-    if (!value.trim()) {
-      setError("Please describe a decision before analyzing.");
-      return;
-    }
+    if (!currentUserEmail) { setError("Please sign in to analyze decisions."); return; }
+    if (!value.trim()) { setError("Please describe a decision before analyzing."); return; }
     if (!currentUserPaid && dailyUsage >= FREE_DAILY_LIMIT) {
       setError("Your free daily limit is reached. Upgrade to Premium for unlimited analysis.");
       return;
     }
+    if (checkViolentContent(value)) { setBlockedWarning(true); return; }
 
-    if (checkViolentContent(value)) {
-      setBlockedWarning(true);
-      return;
-    }
-
-    setError("");
-    setBlockedWarning(false);
-    setLoading(true);
-    setResult(null);
-    setNote("");
-    setNoteStatus("");
+    setError(""); setBlockedWarning(false); setLoading(true); setResult(null); setNote(""); setNoteStatus("");
 
     try {
       const res = await fetch("/api/analyze", {
@@ -335,247 +282,84 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: value }),
       });
-
       const data = await res.json();
-      if (!res.ok || data?.error) {
-        throw new Error(data?.error ?? "Unable to analyze your decision.");
-      }
+      if (!res.ok || data?.error) throw new Error(data?.error ?? "Unable to analyze your decision.");
 
-      const withId: Result = {
-        ...data,
-        id: crypto.randomUUID(),
-        createdAt: new Date().toISOString(),
-      };
-
+      const withId: Result = { ...data, id: crypto.randomUUID(), createdAt: new Date().toISOString() };
       setResult(withId);
-      saveHistory(withId);
-      if (!currentUserPaid) {
-        const nextUsage = dailyUsage + 1;
-        setDailyUsage(nextUsage);
-        saveDailyUsage(currentUserEmail, nextUsage);
+      await saveHistory(withId);
+
+      if (!currentUserPaid && currentUserId) {
+        const next = dailyUsage + 1;
+        setDailyUsage(next);
+        saveDailyUsage(currentUserId, next);
       }
       setText(value);
       setCopyStatus("");
       setNote("");
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Unexpected analysis error.";
-      setError(message);
-      console.error(err);
+      setError(err instanceof Error ? err.message : "Unexpected analysis error.");
     } finally {
       setLoading(false);
     }
   }
 
-  function deleteItem(id: string) {
-    setHistory((current) => {
-      const next = current.filter((item) => item.id !== id);
-      if (typeof window !== "undefined") {
-        const key = `regret-history-${currentUserEmail ?? "public"}`;
-        localStorage.setItem(key, JSON.stringify(next));
-      }
-      return next;
-    });
-    if (result?.id === id) {
-      setResult(null);
-      setNote("");
-      setNoteStatus("");
-    }
-  }
-
-  function clearHistory() {
-    setHistory([]);
-    if (typeof window !== "undefined") {
-      const key = `regret-history-${currentUserEmail ?? "public"}`;
-      localStorage.removeItem(key);
-    }
-  }
-
-  function validateEmail(email: string) {
-    const normalized = normalizeEmail(email);
-    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailPattern.test(normalized);
-  }
-
-  function validatePassword(password: string) {
-    return password.length >= 8 && /[A-Z]/.test(password) && /[a-z]/.test(password) && /\d/.test(password);
-  }
-
-  function validateDisplayName(name: string) {
-    return name.trim().length >= 2 && name.trim().length <= 30;
-  }
-
-  function refreshProfiles() {
-    const users = getUsers();
-    const list = Object.entries(users).map(([email, data]) => ({
-      email,
-      displayName: data.displayName,
-      createdAt: data.createdAt,
-      isPaid: Boolean(data.isPaid),
-      subscriptionDate: data.subscriptionDate,
-    }));
-    setProfiles(list);
-  }
-
+  // ── Auth: Sign up ──
   async function signup() {
     setError("");
-    const email = normalizeEmail(authEmail);
-    if (!validateEmail(email)) {
-      setError("Please enter a valid email address.");
-      return;
+    const email = authEmail.trim().toLowerCase();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setError("Please enter a valid email address."); return; }
+    if (authName.trim().length < 2 || authName.trim().length > 30) { setError("Display name must be 2–30 characters."); return; }
+    if (authPassword.length < 8 || !/[A-Z]/.test(authPassword) || !/[a-z]/.test(authPassword) || !/\d/.test(authPassword)) {
+      setError("Password must be 8+ characters with upper/lowercase letters and a number."); return;
     }
-    if (!validateDisplayName(authName)) {
-      setError("Display name must be 2 to 30 characters.");
-      return;
-    }
-    if (!validatePassword(authPassword)) {
-      setError("Password must be at least 8 characters and include upper/lowercase letters and a number.");
-      return;
-    }
-    if (authPassword !== authConfirmPassword) {
-      setError("Passwords do not match.");
-      return;
-    }
+    if (authPassword !== authConfirmPassword) { setError("Passwords do not match."); return; }
 
-    const users = getUsers();
-    if (users[email]) {
-      setError("An account with this email already exists.");
-      return;
-    }
-
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
-    setVerificationCode(code);
-    setEnteredCode("");
-    setVerificationError("");
-    setVerificationStep(true);
-
-    await fetch("/api/send-verification", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        email,
-        code,
-      }),
+    const { error: signUpError } = await supabase.auth.signUp({
+      email,
+      password: authPassword,
+      options: { data: { displayName: authName.trim(), isPaid: false } },
     });
 
-    return;
+    if (signUpError) { setError(signUpError.message); return; }
+    // Supabase sends verification email automatically
+    setVerificationStep(true);
   }
 
-  async function confirmVerificationCode() {
+  // ── Auth: Log in ──
+  async function login() {
     setError("");
-    setVerificationError("");
+    const email = authEmail.trim().toLowerCase();
+    if (!email) { setError("Please enter your email."); return; }
+    if (!authPassword) { setError("Please enter your password."); return; }
 
-    if (!verificationCode || enteredCode.trim() !== verificationCode) {
-      setVerificationError("Incorrect code. Please try again.");
+    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password: authPassword });
+    if (signInError) {
+      setError(signInError.message === "Invalid login credentials"
+        ? "Incorrect email or password."
+        : signInError.message);
       return;
     }
-
-    const email = normalizeEmail(authEmail);
-    const users = getUsers();
-    if (users[email]) {
-      setVerificationError("An account with this email already exists.");
-      return;
-    }
-
-    users[email] = {
-      password: authPassword,
-      createdAt: new Date().toISOString(),
-      displayName: authName.trim(),
-      isPaid: false,
-    };
-
-    saveUsers(users);
-    refreshProfiles();
-    localStorage.setItem("regret-current-user", email);
-    setCurrentUserEmail(email);
-    setCurrentUserName(authName.trim());
-    setCurrentUserPaid(false);
-    setVerificationStep(false);
-    setVerificationCode("");
-    setEnteredCode("");
+    // onAuthStateChange handles setting user state
     setAuthModal(null);
-    setAuthEmail("");
-    setAuthPassword("");
-    setAuthConfirmPassword("");
-    setAuthName("");
-    loadHistoryForUser(email);
-    loadDailyUsage(email);
+    setAuthEmail(""); setAuthPassword(""); setAuthName(""); setAuthConfirmPassword("");
   }
 
-  function login() {
-    setError("");
-    const email = normalizeEmail(authEmail);
-    if (!validateEmail(email)) {
-      setError("Please enter a valid email address.");
-      return;
-    }
-    if (!authPassword) {
-      setError("Please enter your password.");
-      return;
-    }
-    const users = getUsers();
-    const user = users[email];
-    if (!user || user.password !== authPassword) {
-      setError("Invalid email or password.");
-      return;
-    }
-    localStorage.setItem("regret-current-user", email);
-    setCurrentUserEmail(email);
-    setCurrentUserName(user.displayName);
-    setCurrentUserPaid(Boolean(user.isPaid));
-    setAuthModal(null);
-    setAuthEmail("");
-    setAuthPassword("");
-    setAuthConfirmPassword("");
-    setAuthName("");
-    loadHistoryForUser(email);
-    loadDailyUsage(email);
-  }
-
-  function logout() {
-    localStorage.removeItem("regret-current-user");
-    setCurrentUserEmail(null);
-    setCurrentUserName(null);
-    setCurrentUserPaid(false);
-    setHistory([]);
+  // ── Auth: Log out ──
+  async function logout() {
+    await supabase.auth.signOut();
     setProfileMenuOpen(false);
+    setResult(null);
+    setNote("");
   }
 
-  function switchProfile(email: string) {
-    const users = getUsers();
-    const user = users[email];
-    if (!user) return;
-    localStorage.setItem("regret-current-user", email);
-    setCurrentUserEmail(email);
-    setCurrentUserName(user.displayName);
-    setCurrentUserPaid(Boolean(user.isPaid));
-    setProfileMenuOpen(false);
-    loadHistoryForUser(email);
-    loadDailyUsage(email);
-  }
-
-  function openBillingModal() {
-    setBillingModal(true);
-    setPaymentError("");
-    setCheckoutMessage(null);
-  }
-
-  function closeBillingModal() {
-    setBillingModal(false);
-    setPaymentError("");
-    setBillingProcessing(false);
-  }
+  // ── Billing ──
+  function openBillingModal() { setBillingModal(true); setPaymentError(""); setCheckoutMessage(null); }
+  function closeBillingModal() { setBillingModal(false); setPaymentError(""); setBillingProcessing(false); }
 
   async function startCheckout() {
-    if (!currentUserEmail) {
-      setPaymentError("Please sign in before upgrading.");
-      return;
-    }
-
-    setPaymentError("");
-    setBillingProcessing(true);
-
+    if (!currentUserEmail) { setPaymentError("Please sign in before upgrading."); return; }
+    setPaymentError(""); setBillingProcessing(true);
     try {
       const response = await fetch("/api/checkout/session", {
         method: "POST",
@@ -586,299 +370,164 @@ export default function Home() {
           cancelUrl: window.location.origin,
         }),
       });
-
       const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data?.error || "Unable to start checkout.");
-      }
-
-      if (!data.url) {
-        throw new Error("Stripe checkout session failed to create.");
-      }
-
+      if (!response.ok) throw new Error(data?.error || "Unable to start checkout.");
+      if (!data.url) throw new Error("Stripe checkout session failed to create.");
       window.location.href = data.url;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to start payment.";
-      setPaymentError(message);
+    } catch (err) {
+      setPaymentError(err instanceof Error ? err.message : "Unable to start payment.");
     } finally {
       setBillingProcessing(false);
     }
   }
 
-  useEffect(() => {
-    if (!hydrated) return;
-    if (typeof window === "undefined") return;
+  async function verifyCheckout(sessionId: string) {
+    try {
+      const response = await fetch(`/api/checkout/verify?session_id=${encodeURIComponent(sessionId)}`);
+      const data = await response.json();
+      if (!response.ok || !data.success) { setPaymentError(data?.error || "Unable to verify payment session."); return; }
 
-    const params = new URLSearchParams(window.location.search);
-    const sessionId = params.get("session_id");
-
-    if (!sessionId || !currentUserEmail) return;
-
-    const verifyCheckout = async () => {
-      try {
-        const response = await fetch(
-          `/api/checkout/verify?session_id=${encodeURIComponent(sessionId)}`
-        );
-
-        const data = await response.json();
-
-        if (!response.ok || !data.success) {
-          setPaymentError(
-            data?.error || "Unable to verify payment session."
-          );
-          return;
-        }
-
-        if (data.customer_email !== currentUserEmail) {
-          setPaymentError(
-            "The checked-out account does not match the current user."
-          );
-          return;
-        }
-
-        const users = getUsers();
-        const user = users[currentUserEmail];
-
-        if (!user) {
-          setPaymentError("User not found.");
-          return;
-        }
-
-        users[currentUserEmail] = {
-          ...user,
-          isPaid: true,
-          subscriptionDate: new Date().toISOString(),
-        };
-
-        saveUsers(users);
-
-        setCurrentUserPaid(true);
-        refreshProfiles();
-        setCheckoutMessage("Your Premium subscription is now active.");
-
-        // clean URL
-        window.history.replaceState({}, "", window.location.pathname);
-      } catch (error) {
-        setPaymentError(
-          error instanceof Error
-            ? error.message
-            : "Unable to verify checkout."
-        );
-      }
-    };
-
-    verifyCheckout();
-  }, [hydrated, currentUserEmail]);
-
-  function handleHistorySelect(item: Result) {
-    setResult(item);
-    setText(item.title);
-    setNote(item.note ?? "");
-    setCopyStatus("");
-    setNoteStatus("");
+      // Update user metadata in Supabase
+      await supabase.auth.updateUser({ data: { isPaid: true, subscriptionDate: new Date().toISOString() } });
+      setCurrentUserPaid(true);
+      setCheckoutMessage("Your Premium subscription is now active.");
+      window.history.replaceState({}, "", window.location.pathname);
+    } catch (err) {
+      setPaymentError(err instanceof Error ? err.message : "Unable to verify checkout.");
+    }
   }
 
-  function saveNote() {
+  // ── Misc helpers ──
+  function handleHistorySelect(item: Result) {
+    setResult(item); setText(item.title); setNote(item.note ?? ""); setCopyStatus(""); setNoteStatus("");
+    setActiveTab("analyze");
+  }
+
+  async function saveNote() {
     if (!result) return;
-
-    const updated = {
-      ...result,
-      note: note.trim(),
-    };
-
+    const updated = { ...result, note: note.trim() };
     setResult(updated);
-    saveHistory(updated);
-    setNoteStatus("Note saved to history.");
+    await saveHistory(updated);
+    setNoteStatus("Note saved.");
   }
 
   function downloadAnalysis() {
     if (!result) return;
-
     const payload = `RegretAI Decision Report\n\nTitle: ${result.title}\nCategory: ${CATEGORY_LABELS[result.category]}\nRegret: ${result.regret_score}%\n\nNow:\n${result.immediate}\n\n1 Month:\n${result.one_month}\n\n1 Year:\n${result.one_year}\n\nAdvice:\n${result.advice}\n\nNote:\n${result.note ?? "(none)"}\n`;
     const blob = new Blob([payload], { type: "text/plain;charset=utf-8" });
-    const href = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = href;
-    anchor.download = `regret-report-${result.id}.txt`;
-    document.body.appendChild(anchor);
-    anchor.click();
-    document.body.removeChild(anchor);
-    URL.revokeObjectURL(href);
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `regret-report-${result.id}.txt`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
   }
 
   function toggleTheme() {
     const next = !dark;
     setDark(next);
-    if (typeof window !== "undefined") {
-      document.documentElement.classList.toggle("dark", next);
-      localStorage.setItem("theme", next ? "dark" : "light");
-    }
+    document.documentElement.classList.toggle("dark", next);
+    localStorage.setItem("theme", next ? "dark" : "light");
   }
 
-  function clearInput() {
-    setText("");
-    setError("");
-  }
+  function clearInput() { setText(""); setError(""); }
 
   function formatDate(value?: string) {
     if (!value) return "";
-    return new Date(value).toLocaleString([], {
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    });
+    return new Date(value).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
   }
-
-  const filteredHistory = useMemo(() => {
-    return history.filter((item) => {
-      const matchCategory = categoryFilter === "all" || item.category === categoryFilter;
-      const matchSearch = historySearch.trim().length === 0 || item.title.toLowerCase().includes(historySearch.trim().toLowerCase());
-      return matchCategory && matchSearch;
-    });
-  }, [categoryFilter, history, historySearch]);
-
-  const stats = useMemo(() => {
-    const total = history.length;
-    const average = total ? Math.round(history.reduce((sum, item) => sum + item.regret_score, 0) / total) : 0;
-    const latest = history[0]?.createdAt;
-    return { total, average, latest };
-  }, [history]);
 
   async function copyAnalysis() {
     if (!result) return;
     const summary = `RegretAI analysis for: ${result.title}\nNow: ${result.immediate}\n1 Month: ${result.one_month}\n1 Year: ${result.one_year}\nAdvice: ${result.advice}`;
-    try {
-      await navigator.clipboard.writeText(summary);
-      setCopyStatus("Copied to clipboard!");
-    } catch {
-      setCopyStatus("Unable to copy on this browser.");
-    }
+    try { await navigator.clipboard.writeText(summary); setCopyStatus("Copied!"); }
+    catch { setCopyStatus("Unable to copy on this browser."); }
   }
 
   function shareAnalysis() {
-    if (!result || typeof navigator === "undefined") return;
+    if (!result) return;
     const summary = `RegretAI analysis for: ${result.title}\nNow: ${result.immediate}\n1 Month: ${result.one_month}\n1 Year: ${result.one_year}\nAdvice: ${result.advice}`;
-    if (navigator.share) {
-      navigator.share({
-        title: `RegretAI analysis: ${result.title}`,
-        text: summary,
-      });
-    } else {
-      setCopyStatus("Share is not supported in this browser.");
-    }
+    if (navigator.share) { navigator.share({ title: `RegretAI: ${result.title}`, text: summary }); }
+    else { setCopyStatus("Share not supported in this browser."); }
   }
+
+  const filteredHistory = useMemo(() => history.filter((item) => {
+    const matchCategory = categoryFilter === "all" || item.category === categoryFilter;
+    const matchSearch = !historySearch.trim() || item.title.toLowerCase().includes(historySearch.trim().toLowerCase());
+    return matchCategory && matchSearch;
+  }), [categoryFilter, history, historySearch]);
+
+  const stats = useMemo(() => {
+    const total = history.length;
+    const average = total ? Math.round(history.reduce((s, i) => s + i.regret_score, 0) / total) : 0;
+    return { total, average, latest: history[0]?.createdAt };
+  }, [history]);
 
   return (
     <div className={`page ${dark ? "dark" : ""}`}>
       <div className="center">
-        {/* ── Disclaimer banner ── */}
+
+        {/* ── Disclaimer ── */}
         {!disclaimerDismissed && (
           <div className="disclaimerBanner" role="alert">
             <div className="disclaimerContent">
               <span className="disclaimerIcon" aria-hidden="true">⚠️</span>
               <div>
-                <strong>For informational purposes only.</strong> RegretAI uses AI to simulate how decisions might feel over time. It is not a substitute for professional advice (financial, legal, medical, or psychological). Results are illustrative, not predictive. Do not use this app for decisions involving crisis situations or immediate danger — please contact a professional or emergency services instead.
+                <strong>For informational purposes only.</strong> RegretAI uses AI to simulate how decisions might feel over time. It is not a substitute for professional advice. Do not use for crisis situations — contact emergency services instead.
               </div>
             </div>
-            <button
-              className="disclaimerDismiss"
-              aria-label="Dismiss disclaimer"
-              onClick={() => setDisclaimerDismissed(true)}
-            >
-              Got it
-            </button>
+            <button className="disclaimerDismiss" onClick={() => setDisclaimerDismissed(true)}>Got it</button>
           </div>
         )}
+
+        {/* ── Header ── */}
         <header className="topbar">
           <div>
-            <h1 className="title">
-              <span className="titleEmoji" aria-hidden="true">💀</span>
-              RegretAI
-            </h1>
-            <p className="subtitle">
-              Simulate how a decision feels today, in one month, and in one year.
-            </p>
+            <h1 className="title"><span className="titleEmoji" aria-hidden="true">💀</span>RegretAI</h1>
+            <p className="subtitle">Simulate how a decision feels today, in one month, and in one year.</p>
           </div>
-
-          <div style={{display: 'flex', gap: 8, alignItems: 'center', position: 'relative'}}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", position: "relative" }}>
             {currentUserEmail ? (
               <>
-                <button
-                  className="secondaryBtn"
-                  onClick={() => setProfileMenuOpen((open) => !open)}
-                  aria-haspopup="menu"
-                  aria-expanded={profileMenuOpen}
-                >
-                  {currentUserName ? `Hi, ${currentUserName}` : currentUserEmail}
-                  {currentUserPaid ? " ★" : ""}
+                <button className="secondaryBtn" onClick={() => setProfileMenuOpen((o) => !o)} aria-haspopup="menu" aria-expanded={profileMenuOpen}>
+                  {currentUserName ? `Hi, ${currentUserName}` : currentUserEmail}{currentUserPaid ? " ★" : ""}
                 </button>
                 {profileMenuOpen && (
                   <div className="profileMenu" role="menu">
-                    <div className="profileMenuHeader">Profiles</div>
-                    {profiles.map((profile) => (
-                      <button
-                        key={profile.email}
-                        type="button"
-                        className="profileMenuItem"
-                        role="menuitem"
-                        onClick={() => switchProfile(profile.email)}
-                      >
-                        <strong>{profile.displayName}</strong>
-                        <span>{profile.email} {profile.isPaid ? "· Premium" : ""}</span>
-                      </button>
-                    ))}
-                    <div className="profileMenuDivider" />
+                    <div className="profileMenuHeader">{currentUserEmail}</div>
                     <div className="profileMenuStatus">
-                      <span>{currentUserPaid ? "Premium member" : "Free account"}</span>
+                      <span>{currentUserPaid ? "Premium member ★" : "Free account"}</span>
                       {!currentUserPaid && (
-                        <button className="primaryBtn upgradeBtn" type="button" onClick={openBillingModal}>
+                        <button className="primaryBtn upgradeBtn" type="button" onClick={() => { setActiveTab("plans"); setProfileMenuOpen(false); }}>
                           Upgrade to Premium
                         </button>
                       )}
                     </div>
-                    <button className="profileMenuItem" type="button" onClick={logout}>
-                      Log out
-                    </button>
+                    <div className="profileMenuDivider" />
+                    <button className="profileMenuItem" type="button" onClick={logout}>Log out</button>
                   </div>
                 )}
               </>
             ) : (
               <>
-                <button className="secondaryBtn" onClick={() => setAuthModal('login')}>Log in</button>
-                <button className="primaryBtn" onClick={() => setAuthModal('signup')}>Sign up</button>
+                <button className="secondaryBtn" onClick={() => setAuthModal("login")}>Log in</button>
+                <button className="primaryBtn" onClick={() => setAuthModal("signup")}>Sign up</button>
               </>
             )}
-            <button className="settingsBtn" onClick={() => setActiveTab("settings")}>
-              ⚙️
-            </button>
+            <button className="settingsBtn" onClick={() => setActiveTab("settings")}>⚙️</button>
           </div>
         </header>
 
         {/* ── Tab nav ── */}
         <nav className="tabNav">
-          <button
-            className={`tabBtn ${activeTab === "analyze" ? "tabBtnActive" : ""}`}
-            onClick={() => setActiveTab("analyze")}
-          >
+          <button className={`tabBtn ${activeTab === "analyze" ? "tabBtnActive" : ""}`} onClick={() => setActiveTab("analyze")}>
             🔮 Analyze
           </button>
-          <button
-            className={`tabBtn ${activeTab === "history" ? "tabBtnActive" : ""}`}
-            onClick={() => setActiveTab("history")}
-          >
+          <button className={`tabBtn ${activeTab === "history" ? "tabBtnActive" : ""}`} onClick={() => setActiveTab("history")}>
             📋 History {history.length > 0 && <span className="tabBadge">{history.length}</span>}
           </button>
-          <button
-            className={`tabBtn ${activeTab === "plans" ? "tabBtnActive" : ""}`}
-            onClick={() => setActiveTab("plans")}
-          >
+          <button className={`tabBtn ${activeTab === "plans" ? "tabBtnActive" : ""}`} onClick={() => setActiveTab("plans")}>
             ⭐ Plans
           </button>
-          <button
-            className={`tabBtn ${activeTab === "settings" ? "tabBtnActive" : ""}`}
-            onClick={() => setActiveTab("settings")}
-          >
+          <button className={`tabBtn ${activeTab === "settings" ? "tabBtnActive" : ""}`} onClick={() => setActiveTab("settings")}>
             ⚙️ Settings
           </button>
         </nav>
@@ -886,100 +535,61 @@ export default function Home() {
         {/* ══════════════ ANALYZE TAB ══════════════ */}
         {activeTab === "analyze" && (
           <>
-            {checkoutMessage && (
-              <section className="status success checkoutMessage" style={{marginTop: 20}}>
-                {checkoutMessage}
-              </section>
-            )}
+            {checkoutMessage && <section className="status success checkoutMessage" style={{ marginTop: 20 }}>{checkoutMessage}</section>}
             <div className="mainLayout analyzeLayout">
-              {/* LEFT COLUMN */}
+              {/* LEFT */}
               <div className="inputColumn">
                 <section className="inputCard">
                   <div className="inputHeader">
                     <div>
                       <h2 className="sectionTitle">Describe your decision</h2>
-                      <p className="sectionDescription">
-                        Write your choice clearly and get a fast regret forecast plus actionable advice.
-                      </p>
+                      <p className="sectionDescription">Write your choice clearly and get a fast regret forecast plus actionable advice.</p>
                     </div>
                     <span className="counter">{text.length}/300</span>
                   </div>
-
                   <TextInput
                     placeholder="Example: Should I quit my job and try freelancing?"
-                    value={text}
-                    setValue={setText}
-                    maxLength={300}
-                    rows={6}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                        e.preventDefault();
-                        analyze();
-                      }
-                    }}
+                    value={text} setValue={setText} maxLength={300} rows={6}
+                    onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); analyze(); } }}
                   />
-
                   <div className="row actionRow">
-                    <button
-                      className="primaryBtn"
-                      disabled={!text.trim() || loading || !currentUserEmail}
-                      onClick={() => analyze()}
-                    >
+                    <button className="primaryBtn" disabled={!text.trim() || loading || !currentUserEmail} onClick={() => analyze()}>
                       {loading ? "Analyzing..." : "Analyze decision"}
                     </button>
-                    <button className="secondaryBtn" type="button" onClick={clearInput}>
-                      Clear
-                    </button>
+                    <button className="secondaryBtn" type="button" onClick={clearInput}>Clear</button>
                   </div>
-
                   <div className="buttonGroup">
                     {EXAMPLES.map((example) => (
-                      <button
-                        key={example}
-                        type="button"
-                        className="chip"
-                        onClick={() => analyze(example)}
-                        disabled={!currentUserEmail}
-                      >
-                        {example}
-                      </button>
+                      <button key={example} type="button" className="chip" onClick={() => analyze(example)} disabled={!currentUserEmail}>{example}</button>
                     ))}
                   </div>
-
                   {!currentUserEmail ? (
-                    <div className="status warning">
-                      Sign in to access free daily analysis and saved history.
-                    </div>
+                    <div className="status warning">Sign in to access free daily analysis and saved history.</div>
                   ) : !currentUserPaid ? (
                     <div className="status warning">
-                      Free users get {dailyUsage}/{FREE_DAILY_LIMIT} analyses today. Upgrade to Premium for unlimited analysis and extended history.{" "}
-                      <button className="linkButton" type="button" onClick={() => setActiveTab("plans")}>
-                        View plans
-                      </button>
+                      Free users get {dailyUsage}/{FREE_DAILY_LIMIT} analyses today.{" "}
+                      <button className="linkButton" type="button" onClick={() => setActiveTab("plans")}>Upgrade to Premium</button>
                     </div>
                   ) : null}
-
                   {blockedWarning && (
                     <div className="status error" role="alert">
-                      <strong>🚫 This request can't be analyzed.</strong> RegretAI is designed for everyday life decisions — not requests involving violence, self-harm, or harm to others. If you or someone you know is in crisis, please contact the <a href="https://988lifeline.org" target="_blank" rel="noopener noreferrer" style={{color:"inherit"}}>988 Suicide &amp; Crisis Lifeline</a> or emergency services.
+                      <strong>🚫 This request can't be analyzed.</strong> RegretAI is for everyday life decisions — not requests involving violence or self-harm. If you're in crisis, contact the <a href="https://988lifeline.org" target="_blank" rel="noopener noreferrer" style={{ color: "inherit" }}>988 Suicide &amp; Crisis Lifeline</a>.
                     </div>
                   )}
-
                   {error && !blockedWarning && <div className="status error">{error}</div>}
                 </section>
-
                 <section className="tipsCard">
                   <h3 className="sectionTitle">💡 Tips for a clearer analysis</h3>
                   <ul className="tipsList">
                     <li><strong>Be specific about the trade-off.</strong> Instead of "Should I move?", try "Should I move from Dallas to Austin for a $15k raise but leave my support network?"</li>
-                    <li><strong>Include your time horizon.</strong> Mention whether this is urgent or long-term — it shapes the regret forecast significantly.</li>
-                    <li><strong>Name what you value.</strong> Add context like "stability matters more to me than income" so the advice fits your priorities.</li>
-                    <li><strong>State the alternative.</strong> Every decision has an option B. Include it: "Stay at my current job vs. take the offer."</li>
+                    <li><strong>Include your time horizon.</strong> Mention whether this is urgent or long-term.</li>
+                    <li><strong>Name what you value.</strong> Add context like "stability matters more to me than income."</li>
+                    <li><strong>State the alternative.</strong> Every decision has an option B — include it.</li>
                   </ul>
                 </section>
               </div>
 
-              {/* RIGHT COLUMN — always present */}
+              {/* RIGHT */}
               <div className="resultColumn">
                 {result ? (
                   <section className="resultSection">
@@ -992,17 +602,9 @@ export default function Home() {
                     {copyStatus && <div className="status success">{copyStatus}</div>}
                     <div className="noteSection">
                       <h3 className="sectionTitle">Personal note</h3>
-                      <TextInput
-                        className="noteTextarea"
-                        placeholder="Write a follow-up thought, reminder, or why this decision matters to you."
-                        value={note}
-                        setValue={setNote}
-                        rows={3}
-                      />
+                      <TextInput className="noteTextarea" placeholder="Write a follow-up thought or reminder." value={note} setValue={setNote} rows={3} />
                       <div className="row actionRow">
-                        <button className="primaryBtn" disabled={!result} onClick={saveNote}>
-                          Save note
-                        </button>
+                        <button className="primaryBtn" disabled={!result} onClick={saveNote}>Save note</button>
                         {noteStatus && <span className="status success">{noteStatus}</span>}
                       </div>
                     </div>
@@ -1012,19 +614,9 @@ export default function Home() {
                   <div className="resultPlaceholder">
                     <div className="resultPlaceholderInner">
                       <span className="resultPlaceholderIcon">{loading ? "⏳" : "🔮"}</span>
-                      <p>
-                        {loading
-                          ? "Analyzing your decision…"
-                          : "Your regret forecast will appear here after you analyze a decision."}
-                      </p>
+                      <p>{loading ? "Analyzing your decision…" : "Your regret forecast will appear here after you analyze a decision."}</p>
                       {!loading && (
-                        <button
-                          className="secondaryBtn"
-                          disabled={!text.trim() || !currentUserEmail}
-                          onClick={() => analyze()}
-                        >
-                          Analyze now
-                        </button>
+                        <button className="secondaryBtn" disabled={!text.trim() || !currentUserEmail} onClick={() => analyze()}>Analyze now</button>
                       )}
                     </div>
                   </div>
@@ -1051,64 +643,37 @@ export default function Home() {
                 <strong>{hydrated ? (stats.latest ? formatDate(stats.latest) : "None yet") : "Loading…"}</strong>
               </article>
             </section>
-
             <section className="historyPanel">
               <div className="historyHeader">
                 <div>
                   <h3>Recent decisions</h3>
                   <p className="historyMeta">Filter, search, and reopen any saved analysis.</p>
                 </div>
-                <button className="secondaryBtn" type="button" onClick={clearHistory}>
-                  🗑️ Clear history
-                </button>
+                <button className="secondaryBtn" type="button" onClick={clearHistory} disabled={history.length === 0}>🗑️ Clear all</button>
               </div>
-
               <div className="filterRow">
                 <div className="buttonGroup">
                   {Object.entries(CATEGORY_LABELS).map(([key, label]) => (
-                    <button
-                      key={key}
-                      type="button"
-                      className={`pill ${categoryFilter === key ? "active" : ""}`}
-                      onClick={() => setCategoryFilter(key as typeof categoryFilter)}
-                    >
-                      {label}
-                    </button>
+                    <button key={key} type="button" className={`pill ${categoryFilter === key ? "active" : ""}`} onClick={() => setCategoryFilter(key as typeof categoryFilter)}>{label}</button>
                   ))}
                 </div>
-                <input
-                  type="search"
-                  className="searchInput"
-                  placeholder="Search history..."
-                  value={historySearch}
-                  onChange={(e) => setHistorySearch(e.target.value)}
-                />
+                <input type="search" className="searchInput" placeholder="Search history..." value={historySearch} onChange={(e) => setHistorySearch(e.target.value)} />
               </div>
-
               <div className="historyList">
-                {filteredHistory.length === 0 ? (
-                  <div className="emptyState">No saved decisions match your filters.</div>
+                {historyLoading ? (
+                  <div className="emptyState">Loading your decisions…</div>
+                ) : filteredHistory.length === 0 ? (
+                  <div className="emptyState">{currentUserEmail ? "No saved decisions match your filters." : "Sign in to see your saved decisions."}</div>
                 ) : (
                   filteredHistory.map((item) => (
                     <div key={item.id} className="historyItem">
-                      <button
-                        type="button"
-                        className="historyLink"
-                        onClick={() => { handleHistorySelect(item); setActiveTab("analyze"); }}
-                      >
+                      <button type="button" className="historyLink" onClick={() => handleHistorySelect(item)}>
                         <div>
                           <strong>{item.title}</strong>
                           <div className="historyMeta">{CATEGORY_LABELS[item.category]} · {formatDate(item.createdAt)}</div>
                         </div>
                       </button>
-                      <button
-                        type="button"
-                        className="deleteBtn"
-                        aria-label={`Delete ${item.title}`}
-                        onClick={() => deleteItem(item.id)}
-                      >
-                        ✕
-                      </button>
+                      <button type="button" className="deleteBtn" aria-label={`Delete ${item.title}`} onClick={() => deleteItem(item.id)}>✕</button>
                     </div>
                   ))
                 )}
@@ -1120,12 +685,7 @@ export default function Home() {
         {/* ══════════════ PLANS TAB ══════════════ */}
         {activeTab === "plans" && (
           <div className="tabContent">
-            {checkoutMessage && (
-              <section className="status success checkoutMessage" style={{marginBottom: 20}}>
-                {checkoutMessage}
-              </section>
-            )}
-
+            {checkoutMessage && <section className="status success checkoutMessage" style={{ marginBottom: 20 }}>{checkoutMessage}</section>}
             {currentUserEmail && currentUserPaid ? (
               <section className="billingPromoCard premiumActive">
                 <h3>Premium account active ★</h3>
@@ -1138,39 +698,25 @@ export default function Home() {
             ) : (
               <section className="billingPromoCard">
                 <h3>Choose Your Plan</h3>
-                <p style={{color: "var(--text-muted)", margin: "8px 0 4px"}}>Unlock unlimited analysis, extended history, and priority results. Cancel anytime.</p>
+                <p style={{ color: "var(--text-muted)", margin: "8px 0 4px" }}>Unlock unlimited analysis, extended history, and priority results. Cancel anytime.</p>
                 <div className="planGrid">
                   {PLANS.map((plan) => (
                     <div
                       key={plan.name}
                       className={`planCard ${selectedPlan.name === plan.name ? "planCardSelected" : ""} ${plan.recommended ? "planCardRecommended" : ""}`}
-                      onClick={() => setSelectedPlan(plan)}
-                      role="button"
-                      tabIndex={0}
+                      onClick={() => setSelectedPlan(plan)} role="button" tabIndex={0}
                       onKeyDown={(e) => e.key === "Enter" && setSelectedPlan(plan)}
                     >
                       {plan.recommended && <div className="planBadge">Most Popular</div>}
                       <strong className="planName">{plan.name}</strong>
                       <div className="planPrice">{plan.price}</div>
                       <p className="planDesc">{plan.description}</p>
-                      <ul className="billingFeatures">
-                        {plan.features.map((f) => <li key={f}>{f}</li>)}
-                      </ul>
+                      <ul className="billingFeatures">{plan.features.map((f) => <li key={f}>{f}</li>)}</ul>
                     </div>
                   ))}
                 </div>
-                {!currentUserEmail && (
-                  <div className="status warning" style={{marginBottom: 12}}>
-                    You need to be signed in to upgrade. Use the Log in or Sign up buttons in the header.
-                  </div>
-                )}
-                <button
-                  className="primaryBtn"
-                  type="button"
-                  onClick={openBillingModal}
-                  disabled={!currentUserEmail}
-                  style={{ width: "100%", marginTop: 8 }}
-                >
+                {!currentUserEmail && <div className="status warning" style={{ marginBottom: 12 }}>You need to be signed in to upgrade.</div>}
+                <button className="primaryBtn" type="button" onClick={openBillingModal} disabled={!currentUserEmail} style={{ width: "100%", marginTop: 8 }}>
                   Continue with {selectedPlan.name} — {selectedPlan.price}
                 </button>
               </section>
@@ -1183,19 +729,15 @@ export default function Home() {
           <div className="tabContent">
             <section className="inputCard">
               <h2 className="sectionTitle">Settings</h2>
-
               <div className="settingsGroup">
                 <div className="settingsRow">
                   <div>
                     <strong>Theme</strong>
                     <p className="sectionDescription">Switch between light and dark mode.</p>
                   </div>
-                  <button className="secondaryBtn" onClick={toggleTheme}>
-                    {dark ? "☀️ Switch to Light" : "🌙 Switch to Dark"}
-                  </button>
+                  <button className="secondaryBtn" onClick={toggleTheme}>{dark ? "☀️ Switch to Light" : "🌙 Switch to Dark"}</button>
                 </div>
               </div>
-
               <div className="settingsGroup">
                 <h3 className="settingsGroupLabel">Account</h3>
                 {currentUserEmail ? (
@@ -1229,27 +771,23 @@ export default function Home() {
                       <strong>Not signed in</strong>
                       <p className="sectionDescription">Sign in to save history and access analysis.</p>
                     </div>
-                    <div style={{display: "flex", gap: 8}}>
+                    <div style={{ display: "flex", gap: 8 }}>
                       <button className="secondaryBtn" onClick={() => setAuthModal("login")}>Log in</button>
                       <button className="primaryBtn" onClick={() => setAuthModal("signup")}>Sign up</button>
                     </div>
                   </div>
                 )}
               </div>
-
               <div className="settingsGroup">
                 <h3 className="settingsGroupLabel">Data</h3>
                 <div className="settingsRow">
                   <div>
                     <strong>Decision history</strong>
-                    <p className="sectionDescription">{history.length} saved {history.length === 1 ? "decision" : "decisions"} stored locally on this device.</p>
+                    <p className="sectionDescription">{history.length} saved {history.length === 1 ? "decision" : "decisions"} stored in the cloud.</p>
                   </div>
-                  <button className="secondaryBtn" onClick={clearHistory} disabled={history.length === 0}>
-                    🗑️ Clear all history
-                  </button>
+                  <button className="secondaryBtn" onClick={clearHistory} disabled={history.length === 0}>🗑️ Clear all</button>
                 </div>
               </div>
-
               <div className="settingsGroup">
                 <h3 className="settingsGroupLabel">About</h3>
                 <div className="settingsRow">
@@ -1263,72 +801,49 @@ export default function Home() {
           </div>
         )}
 
-        {/* ══════════════ MODALS (always rendered) ══════════════ */}
+        {/* ══════════════ AUTH MODAL ══════════════ */}
         {authModal && (
           <div className="authOverlay" role="dialog" aria-modal="true">
             <div className="authModal">
               {verificationStep ? (
                 <>
-                  <h3>Verify your email</h3>
-                  <p className="authHint">A 6-digit code was sent to <strong>{authEmail}</strong>. Enter it below to complete sign up.</p>
-                  <label>
-                    Verification code
-                    <input
-                      value={enteredCode}
-                      onChange={(e) => setEnteredCode(e.target.value)}
-                      type="text"
-                      inputMode="numeric"
-                      maxLength={6}
-                      placeholder="123456"
-                    />
-                  </label>
-                  {verificationError && <div className="status error" role="alert">{verificationError}</div>}
-                  <div style={{display: 'flex', gap: 8, marginTop: 12}}>
-                    <button className="primaryBtn" onClick={confirmVerificationCode}>Verify &amp; create account</button>
-                    <button className="secondaryBtn" onClick={() => { setVerificationStep(false); setVerificationError(""); }}>Back</button>
+                  <h3>Check your email</h3>
+                  <p className="authHint">A verification link was sent to <strong>{authEmail}</strong>. Click it to complete your sign up, then log in here.</p>
+                  <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                    <button className="primaryBtn" onClick={() => { setVerificationStep(false); setAuthModal("login"); }}>Go to login</button>
+                    <button className="secondaryBtn" onClick={() => { setVerificationStep(false); setAuthModal(null); }}>Close</button>
                   </div>
                 </>
               ) : (
                 <>
-                  <h3>{authModal === 'signup' ? 'Create an account' : 'Log in'}</h3>
-                  {authModal === 'signup' && (
-                    <label>
-                      Display name
-                      <input value={authName} onChange={(e) => setAuthName(e.target.value)} type="text" />
-                    </label>
+                  <h3>{authModal === "signup" ? "Create an account" : "Log in"}</h3>
+                  {authModal === "signup" && (
+                    <label>Display name<input value={authName} onChange={(e) => setAuthName(e.target.value)} type="text" /></label>
                   )}
-                  <label>
-                    Email
-                    <input value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} type="email" />
-                  </label>
-                  <label>
-                    Password
-                    <input value={authPassword} onChange={(e) => setAuthPassword(e.target.value)} type="password" />
-                  </label>
-                  {authModal === 'signup' && (
-                    <label>
-                      Confirm password
-                      <input value={authConfirmPassword} onChange={(e) => setAuthConfirmPassword(e.target.value)} type="password" />
-                    </label>
+                  <label>Email<input value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} type="email" /></label>
+                  <label>Password<input value={authPassword} onChange={(e) => setAuthPassword(e.target.value)} type="password" /></label>
+                  {authModal === "signup" && (
+                    <label>Confirm password<input value={authConfirmPassword} onChange={(e) => setAuthConfirmPassword(e.target.value)} type="password" /></label>
                   )}
                   {error && <div className="status error" role="alert">{error}</div>}
-                  <div style={{display: 'flex', gap: 8, marginTop: 12}}>
-                    <button className="primaryBtn" onClick={() => (authModal === 'signup' ? signup() : login())}>
-                      {authModal === 'signup' ? 'Send verification code' : 'Log in'}
+                  <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                    <button className="primaryBtn" onClick={() => authModal === "signup" ? signup() : login()}>
+                      {authModal === "signup" ? "Sign up" : "Log in"}
                     </button>
-                    <button className="secondaryBtn" onClick={() => setAuthModal(null)}>Cancel</button>
+                    <button className="secondaryBtn" onClick={() => { setAuthModal(null); setError(""); }}>Cancel</button>
                   </div>
-                  {authModal === 'signup' ? (
-                    <p className="authHint">Password must be 8+ characters, and include upper/lowercase letters plus a number.</p>
-                  ) : (
-                    <p className="authHint">Use the email and password you registered with.</p>
-                  )}
+                  <p className="authHint">
+                    {authModal === "signup"
+                      ? "Password must be 8+ characters with upper/lowercase letters and a number."
+                      : <span>No account? <button className="linkButton" onClick={() => { setAuthModal("signup"); setError(""); }}>Sign up</button></span>}
+                  </p>
                 </>
               )}
             </div>
           </div>
         )}
 
+        {/* ══════════════ BILLING MODAL ══════════════ */}
         {billingModal && (
           <div className="authOverlay" role="dialog" aria-modal="true">
             <div className="billingModal">
@@ -1339,36 +854,29 @@ export default function Home() {
                   <div
                     key={plan.name}
                     className={`planCard ${selectedPlan.name === plan.name ? "planCardSelected" : ""} ${plan.recommended ? "planCardRecommended" : ""}`}
-                    onClick={() => setSelectedPlan(plan)}
-                    role="button"
-                    tabIndex={0}
+                    onClick={() => setSelectedPlan(plan)} role="button" tabIndex={0}
                     onKeyDown={(e) => e.key === "Enter" && setSelectedPlan(plan)}
                   >
                     {plan.recommended && <div className="planBadge">Most Popular</div>}
                     <strong className="planName">{plan.name}</strong>
                     <div className="planPrice">{plan.price}</div>
                     <p className="planDesc">{plan.description}</p>
-                    <ul className="billingFeatures">
-                      {plan.features.map((f) => <li key={f}>{f}</li>)}
-                    </ul>
+                    <ul className="billingFeatures">{plan.features.map((f) => <li key={f}>{f}</li>)}</ul>
                   </div>
                 ))}
               </div>
-              <p className="billingNotice">
-                You will be redirected to Stripe Checkout to complete your purchase securely.
-              </p>
+              <p className="billingNotice">You will be redirected to Stripe Checkout to complete your purchase securely.</p>
               {paymentError && <div className="status error">{paymentError}</div>}
-              <div style={{display: 'flex', gap: 8, marginTop: 12}}>
+              <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
                 <button className="primaryBtn" type="button" onClick={startCheckout} disabled={billingProcessing}>
                   {billingProcessing ? "Starting checkout..." : `Start ${selectedPlan.name} — ${selectedPlan.price}`}
                 </button>
-                <button className="secondaryBtn" type="button" onClick={closeBillingModal} disabled={billingProcessing}>
-                  Cancel
-                </button>
+                <button className="secondaryBtn" type="button" onClick={closeBillingModal} disabled={billingProcessing}>Cancel</button>
               </div>
             </div>
           </div>
         )}
+
       </div>
     </div>
   );
