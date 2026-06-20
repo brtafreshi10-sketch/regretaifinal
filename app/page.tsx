@@ -335,7 +335,7 @@ export default function Home() {
     }
     if (authPassword !== authConfirmPassword) { setError("Passwords do not match."); return; }
 
-    const { error: signUpError } = await supabase.auth.signUp({
+    const { data, error: signUpError } = await supabase.auth.signUp({
       email,
       password: authPassword,
       options: { 
@@ -347,6 +347,13 @@ export default function Home() {
     });
 
     if (signUpError) { setError(signUpError.message ?? JSON.stringify(signUpError)); return; }
+    
+    // Intercept duplicate account creation safely on the frontend
+    if (data?.user && data.user.identities && data.user.identities.length === 0) {
+      setError("An account with this email already exists. Please log in instead.");
+      return;
+    }
+
     setVerificationStep(true);
   }
 
