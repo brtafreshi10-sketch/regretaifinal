@@ -849,7 +849,7 @@ export default function Home() {
         <header className="topbar">
           <div>
             <h1 className="title"><span className="titleEmoji" aria-hidden="true">💀</span>RegretAI</h1>
-            <p className="subtitle">See how your choices will impact you in a day, month, or</p>
+            <p className="subtitle">See how your choices will impact you in a day, month, or year!</p>
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center", position: "relative" }}>
             {currentUserEmail && streakCount > 0 && (
