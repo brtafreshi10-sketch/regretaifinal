@@ -1404,7 +1404,6 @@ html.dark .page,
   }
 }
 
-
 /* ── Tab navigation ── */
 .tabNav {
   display: flex;
@@ -1549,5 +1548,58 @@ html.dark .page,
   .settingsRow {
     flex-direction: column;
     align-items: flex-start;
+  }
+}
+
+/* ── Auth Modal Cleanup ── */
+.authFormFields {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.authFormFields label {
+  margin-top: 0;
+}
+
+.authLinksBox {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color);
+  text-align: center;
+}
+
+.authLinkGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 0.95rem;
+  color: var(--muted-color);
+}
+
+.authLinkGroup .linkButton {
+  margin-left: 4px;
+  font-weight: 600;
+}
+
+/* ── Mobile Jump Button ── */
+.jumpBtn {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .jumpBtn {
+    display: block;
+    width: 100%;
+    background: linear-gradient(135deg, #f8fafc, #eef2ff);
+    border: 1px solid #c7d2fe;
+    color: #4f46e5;
+  }
+  
+  .page.dark .jumpBtn {
+    background: rgba(99, 102, 241, 0.15);
+    border-color: rgba(99, 102, 241, 0.3);
+    color: #c7d2fe;
   }
 }

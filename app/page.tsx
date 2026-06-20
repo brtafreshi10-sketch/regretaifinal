@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { createBrowserClient } from "@supabase/ssr";
 import type { Session, AuthChangeEvent } from "@supabase/supabase-js";
 import ResultCard from "@/components/ResultCard";
@@ -93,6 +93,7 @@ const EXAMPLES = [
 ];
 
 export default function Home() {
+  const resultRef = useRef<HTMLDivElement>(null);
   const [text, setText] = useState("");
   const [result, setResult] = useState<Result | null>(null);
   const [history, setHistory] = useState<Result[]>([]);
@@ -340,8 +341,11 @@ export default function Home() {
     setError("");
     if (!supabase) { setError("Authentication is not configured."); return; }
     const email = authEmail.trim().toLowerCase();
+    const phone = authPhone.trim();
+    
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setError("Please enter a valid email address."); return; }
     if (authName.trim().length < 2 || authName.trim().length > 30) { setError("Display name must be 2–30 characters."); return; }
+    if (!phone || phone.length < 10) { setError("Please enter a valid phone number (e.g., +1234567890)."); return; }
     if (authPassword.length < 8 || !/[A-Z]/.test(authPassword) || !/[a-z]/.test(authPassword) || !/\d/.test(authPassword)) {
       setError("Password must be 8+ characters with upper/lowercase letters and a number."); return;
     }
@@ -350,11 +354,16 @@ export default function Home() {
     const { error: signUpError } = await supabase.auth.signUp({
       email,
       password: authPassword,
-      options: { data: { displayName: authName.trim(), isPaid: false } },
+      options: { 
+        data: { 
+          displayName: authName.trim(), 
+          isPaid: false,
+          phone: phone 
+        } 
+      },
     });
 
     if (signUpError) { setError(signUpError.message ?? JSON.stringify(signUpError)); return; }
-    // Supabase sends verification email automatically
     setVerificationStep(true);
   }
 
@@ -373,9 +382,8 @@ export default function Home() {
         : signInError.message);
       return;
     }
-    // onAuthStateChange handles setting user state
     setAuthModal(null);
-    setAuthEmail(""); setAuthPassword(""); setAuthName(""); setAuthConfirmPassword("");
+    setAuthEmail(""); setAuthPassword(""); setAuthName(""); setAuthConfirmPassword(""); setAuthPhone("");
   }
 
   // ── Auth: Log out ──
@@ -629,6 +637,16 @@ export default function Home() {
                       {loading ? "Analyzing..." : "Analyze decision"}
                     </button>
                     <button className="secondaryBtn" type="button" onClick={clearInput}>Clear</button>
+                    
+                    {result && (
+                      <button 
+                        className="secondaryBtn jumpBtn" 
+                        type="button" 
+                        onClick={() => resultRef.current?.scrollIntoView({ behavior: "smooth" })}
+                      >
+                        View Regret Score 👇
+                      </button>
+                    )}
                   </div>
                   <div className="buttonGroup">
                     {EXAMPLES.map((example) => (
@@ -662,7 +680,7 @@ export default function Home() {
               </div>
 
               {/* RIGHT */}
-              <div className="resultColumn">
+              <div className="resultColumn" ref={resultRef}>
                 {result ? (
                   <section className="resultSection">
                     <div className="resultActions">
@@ -937,34 +955,44 @@ export default function Home() {
               ) : (
                 <>
                   <h3>{authModal === "signup" ? "Create an account" : "Log in"}</h3>
-                  {authModal === "signup" && (
-                    <label>Display name<input value={authName} onChange={(e) => setAuthName(e.target.value)} type="text" /></label>
-                  )}
-                  <label>Email<input value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} type="email" /></label>
-                  <label>Password<input value={authPassword} onChange={(e) => setAuthPassword(e.target.value)} type="password" /></label>
-                  {authModal === "signup" && (
-                    <label>Confirm password<input value={authConfirmPassword} onChange={(e) => setAuthConfirmPassword(e.target.value)} type="password" /></label>
-                  )}
+                  
+                  <div className="authFormFields">
+                    {authModal === "signup" && (
+                      <label>Display name<input value={authName} onChange={(e) => setAuthName(e.target.value)} type="text" placeholder="Alex" /></label>
+                    )}
+                    <label>Email<input value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} type="email" placeholder="you@example.com" /></label>
+                    
+                    {authModal === "signup" && (
+                      <label>Phone number<input value={authPhone} onChange={(e) => setAuthPhone(e.target.value)} type="tel" placeholder="+1234567890" /></label>
+                    )}
+                    
+                    <label>Password<input value={authPassword} onChange={(e) => setAuthPassword(e.target.value)} type="password" placeholder="••••••••" /></label>
+                    
+                    {authModal === "signup" && (
+                      <label>Confirm password<input value={authConfirmPassword} onChange={(e) => setAuthConfirmPassword(e.target.value)} type="password" placeholder="••••••••" /></label>
+                    )}
+                  </div>
+
                   {error && <div className="status error" role="alert">{error}</div>}
-                  <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                    <button className="primaryBtn" onClick={() => authModal === "signup" ? signup() : login()}>
+                  
+                  <div style={{ display: "flex", gap: 8, marginTop: 24 }}>
+                    <button className="primaryBtn" style={{ flex: 1 }} onClick={() => authModal === "signup" ? signup() : login()}>
                       {authModal === "signup" ? "Sign up" : "Log in"}
                     </button>
                     <button className="secondaryBtn" onClick={() => { setAuthModal(null); setError(""); }}>Cancel</button>
                   </div>
-                  <p className="authHint">
+                  
+                  <div className="authLinksBox">
                     {authModal === "signup"
-                      ? "Password must be 8+ characters with upper/lowercase letters and a number."
+                      ? <p className="authHint">Password must be 8+ characters with upper/lowercase letters and a number.</p>
                       : (
-                        <span>
-                          No account? <button className="linkButton" onClick={() => { setAuthModal("signup"); setError(""); }}>Sign up</button>
-                          {" · "}
-                          <button className="linkButton" onClick={() => { setAuthModal("reset-password"); setError(""); }}>Forgot password?</button>
-                          {" · "}
-                          <button className="linkButton" onClick={() => { setAuthModal("phone"); setError(""); setPhoneStep("enter-phone"); }}>Use phone</button>
-                        </span>
+                        <div className="authLinkGroup">
+                          <span>No account? <button className="linkButton" onClick={() => { setAuthModal("signup"); setError(""); }}>Sign up</button></span>
+                          <span>Forgot your password? <button className="linkButton" onClick={() => { setAuthModal("reset-password"); setError(""); }}>Reset it</button></span>
+                          <span>Want to use SMS? <button className="linkButton" onClick={() => { setAuthModal("phone"); setError(""); setPhoneStep("enter-phone"); }}>Use phone</button></span>
+                        </div>
                       )}
-                  </p>
+                  </div>
                 </>
               )}
             </div>
