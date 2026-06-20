@@ -52,6 +52,9 @@ const BLOCKED_PATTERNS = [
   /\b(weapon|gun|knife|explosive|grenade)\b/i,
 ];
 
+// Simple list of words that are purely conversational greetings or too short to be a decision
+const GREETING_PATTERNS = /^\s*(hi|hello|hey|yo|sup|greetings|hola|good morning|good afternoon|good evening|test|testing|please|help)\b\s*$/i;
+
 function checkViolentContent(input: string): boolean {
   return BLOCKED_PATTERNS.some((pattern) => pattern.test(input));
 }
@@ -171,7 +174,6 @@ export default function Home() {
         setCurrentUserName(user?.user_metadata?.displayName ?? null);
         setCurrentUserPaid(Boolean(user?.user_metadata?.isPaid));
         
-        // INTERCEPT RECOVERY AND LOCK VIEW STATE
         if (_event === "PASSWORD_RECOVERY") {
           setIsRecoveringPassword(true);
           setAuthModal("reset-password");
@@ -293,13 +295,23 @@ export default function Home() {
   // ── Analyze ──
   async function analyze(input?: string) {
     const value = input ?? text;
+    const cleanValue = value.trim();
+
     if (!currentUserEmail) { setError("Please sign in to analyze decisions."); return; }
-    if (!value.trim()) { setError("Please describe a decision before analyzing."); return; }
+    if (!cleanValue) { setError("Please describe a decision before analyzing."); return; }
+    
+    // Check if prompt is a conversational placeholder (e.g. "hi", "hello") or way too vague to evaluate
+    if (GREETING_PATTERNS.test(cleanValue) || cleanValue.length < 8) {
+      setError("This choice cannot be forecasted. Please write a specific scenario or a question (e.g., 'Should I take option A or option B?').");
+      setResult(null);
+      return;
+    }
+
     if (!currentUserPaid && dailyUsage >= FREE_DAILY_LIMIT) {
       setError("Your free daily limit is reached. Upgrade to Premium for unlimited analysis.");
       return;
     }
-    if (checkViolentContent(value)) { setBlockedWarning(true); return; }
+    if (checkViolentContent(cleanValue)) { setBlockedWarning(true); return; }
 
     setError(""); setBlockedWarning(false); setLoading(true); setResult(null); setNote(""); setNoteStatus("");
 
@@ -307,7 +319,7 @@ export default function Home() {
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: value }),
+        body: JSON.stringify({ text: cleanValue }),
       });
       const data = await res.json();
       if (!res.ok || data?.error) throw new Error(data?.error ?? "Unable to analyze your decision.");
@@ -417,7 +429,6 @@ export default function Home() {
     const cleanOrigin = window.location.origin.replace(/\/$/, "");
 
     const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
-      // FIXED: Point back to main domain root so this client-side page catches the incoming hash token session
       redirectTo: `${cleanOrigin}/`,
     });
     if (resetError) { setError(resetError.message); return; }
@@ -444,7 +455,7 @@ export default function Home() {
     } else {
       setIsRecoveringPassword(false);
       setResetEmailSent(false);
-      setAuthModal(null); // Close fully since they are already authenticated!
+      setAuthModal(null);
       setAuthPassword("");
       setAuthConfirmPassword("");
       setError("");
