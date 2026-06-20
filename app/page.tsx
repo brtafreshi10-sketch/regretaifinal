@@ -1,3 +1,8 @@
+Here is the complete, full `page.tsx` code.
+
+This version includes the dynamic `PASSWORD_RECOVERY` listener inside the auth `useEffect` hook. If Supabase strips the hash fragment or defaults to your home page layout on `https://regretai.app`, this listener will instantly intercept the event and auto-open the password reset modal layout directly on your homepage so the user can type their new password seamlessly.
+
+```tsx
 "use client";
 
 import { useEffect, useMemo, useState, useRef } from "react";
@@ -169,6 +174,13 @@ export default function Home() {
         setCurrentUserEmail(user?.email ?? null);
         setCurrentUserName(user?.user_metadata?.displayName ?? null);
         setCurrentUserPaid(Boolean(user?.user_metadata?.isPaid));
+        
+        // INTERCEPT USER PASSWORD RECOVERY REDIRECT EVENTS
+        if (_event === "PASSWORD_RECOVERY") {
+          setAuthModal("reset-password");
+          setVerificationStep(false);
+        }
+
         if (user) {
           loadHistory(user.id);
           loadDailyUsage(user.id);
@@ -348,7 +360,6 @@ export default function Home() {
 
     if (signUpError) { setError(signUpError.message ?? JSON.stringify(signUpError)); return; }
     
-    // Intercept duplicate account creation safely on the frontend
     if (data?.user && data.user.identities && data.user.identities.length === 0) {
       setError("An account with this email already exists. Please log in instead.");
       return;
@@ -406,7 +417,6 @@ export default function Home() {
     const email = authEmail.trim().toLowerCase();
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setError("Please enter a valid email address."); return; }
     
-    // Clean up trailing slash to prevent duplicate forward slashes in redirect token parsing
     const cleanOrigin = window.location.origin.replace(/\/$/, "");
 
     const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
@@ -414,6 +424,33 @@ export default function Home() {
     });
     if (resetError) { setError(resetError.message); return; }
     setResetEmailSent(true);
+  }
+
+  // ── Auth: Execute Final Password Update ──
+  async function handleFinalPasswordReset() {
+    setError("");
+    if (!supabase) return;
+    if (authPassword.length < 8 || !/[A-Z]/.test(authPassword) || !/[a-z]/.test(authPassword) || !/\d/.test(authPassword)) {
+      setError("Password must be 8+ characters with upper/lowercase letters and a number."); return;
+    }
+    if (authPassword !== authConfirmPassword) { setError("Passwords do not match."); return; }
+
+    setLoading(true);
+    const { error: updateError } = await supabase.auth.updateUser({
+      password: authPassword,
+    });
+    setLoading(false);
+
+    if (updateError) {
+      setError(updateError.message);
+    } else {
+      setResetEmailSent(false);
+      setAuthModal("login");
+      setAuthPassword("");
+      setAuthConfirmPassword("");
+      setError("");
+      alert("Password updated successfully! You can now log in with your new password.");
+    }
   }
 
   // ── Billing ──
@@ -894,16 +931,23 @@ export default function Home() {
                   <h3>Reset password</h3>
                   {resetEmailSent ? (
                     <>
-                      <p className="authHint">A password reset link was sent to <strong>{authEmail}</strong>. Check your inbox.</p>
-                      <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                        <button className="primaryBtn" onClick={() => { setResetEmailSent(false); setAuthModal("login"); }}>Back to login</button>
-                        <button className="secondaryBtn" onClick={() => { setResetEmailSent(false); setAuthModal(null); }}>Close</button>
+                      <div className="authFormFields">
+                        <p className="authHint" style={{ marginBottom: 12 }}>A recovery session is active. Please type your chosen new password below.</p>
+                        <label>New Password<input value={authPassword} onChange={(e) => setAuthPassword(e.target.value)} type="password" placeholder="••••••••" /></label>
+                        <label>Confirm New Password<input value={authConfirmPassword} onChange={(e) => setAuthConfirmPassword(e.target.value)} type="password" placeholder="••••••••" /></label>
+                      </div>
+                      {error && <div className="status error" role="alert">{error}</div>}
+                      <div style={{ display: "flex", gap: 8, marginTop: 24 }}>
+                        <button className="primaryBtn" style={{ flex: 1 }} onClick={handleFinalPasswordReset} disabled={loading}>
+                          {loading ? "Updating..." : "Update Password"}
+                        </button>
+                        <button className="secondaryBtn" onClick={() => { setResetEmailSent(false); setAuthModal(null); setError(""); }}>Cancel</button>
                       </div>
                     </>
                   ) : (
                     <>
                       <p className="authHint">Enter your email and we'll send you a reset link.</p>
-                      <label>Email<input value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} type="email" /></label>
+                      <label>Email<input value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} type="email" placeholder="you@example.com" /></label>
                       {error && <div className="status error" role="alert">{error}</div>}
                       <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
                         <button className="primaryBtn" onClick={sendResetEmail}>Send reset link</button>
@@ -992,3 +1036,5 @@ export default function Home() {
     </div>
   );
 }
+
+```
