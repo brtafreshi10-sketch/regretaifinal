@@ -1229,7 +1229,7 @@ export default function Home() {
                 <div className="settingsRow">
                   <div>
                     <strong>RegretAI</strong>
-                    <p className="sectionDescription">See how your choices will impact you in a day, month, or year -For informational purposes only — not a substitute for professional advice</p>
+                    <p className="sectionDescription">See how your choices will impact you in a day, month, or year -For informational purposes only — not a substitute for professional advice.</p>
                   </div>
                 </div>
               </div>
