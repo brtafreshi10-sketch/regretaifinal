@@ -405,8 +405,12 @@ export default function Home() {
     if (!supabase) { setError("Authentication is not configured."); return; }
     const email = authEmail.trim().toLowerCase();
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setError("Please enter a valid email address."); return; }
+    
+    // Clean up trailing slash to prevent duplicate forward slashes in redirect token parsing
+    const cleanOrigin = window.location.origin.replace(/\/$/, "");
+
     const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/reset-password`,
+      redirectTo: `${cleanOrigin}/reset-password`,
     });
     if (resetError) { setError(resetError.message); return; }
     setResetEmailSent(true);
