@@ -1642,6 +1642,119 @@ html.dark .page,
   fill: #a855f7;
 }
 
+/* ── Streaks ── */
+.streakBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: linear-gradient(135deg, #f59e0b, #ef4444);
+  color: white;
+  font-weight: 800;
+  font-size: 0.85rem;
+  padding: 8px 14px;
+  border-radius: 999px;
+  box-shadow: 0 8px 20px rgba(239, 68, 68, 0.24);
+}
+
+.streakToast {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.dismissInline {
+  background: transparent;
+  border: none;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-weight: 700;
+  color: inherit;
+  opacity: 0.7;
+}
+
+.dismissInline:hover {
+  opacity: 1;
+  transform: none;
+  box-shadow: none;
+}
+
+/* ── Outcome check-in banner ── */
+.checkinBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  flex-wrap: wrap;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.08));
+  border: 1px solid rgba(99, 102, 241, 0.22);
+  border-radius: 28px;
+  padding: 20px 26px;
+  margin-top: 20px;
+}
+
+.page.dark .checkinBanner {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.14), rgba(139, 92, 246, 0.1));
+  border-color: rgba(148, 163, 184, 0.22);
+}
+
+/* ── Outcome check-in modal ── */
+.checkinModal {
+  width: min(92vw, 420px);
+}
+
+.checkinSliderRow {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.checkinSlider {
+  flex: 1;
+  accent-color: #7c3aed;
+}
+
+.checkinSliderValue {
+  font-weight: 800;
+  font-size: 1.1rem;
+  min-width: 52px;
+  text-align: right;
+  color: #7c3aed;
+}
+
+.page.dark .checkinSliderValue {
+  color: #a855f7;
+}
+
+.checkinQuickPicks {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+
+.checkinTag {
+  color: #7c3aed;
+  font-weight: 600;
+}
+
+.page.dark .checkinTag {
+  color: #c4b5fd;
+}
+
+.checkinSmallBtn {
+  padding: 8px 14px;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.historyItemActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 /* ── Mobile Jump Button ── */
 .jumpBtn {
   display: none;

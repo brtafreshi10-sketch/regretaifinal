@@ -34,6 +34,8 @@ type Result = {
   note?: string;
   createdAt?: string;
   originalInput?: string;
+  actualRegret?: number;
+  checkinAt?: string;
 };
 
 const CATEGORY_LABELS: Record<Result["category"] | "all", string> = {
@@ -46,6 +48,9 @@ const CATEGORY_LABELS: Record<Result["category"] | "all", string> = {
 };
 
 const FREE_DAILY_LIMIT = 5;
+const STREAK_MILESTONE = 7; // every Nth consecutive day grants a bonus
+const STREAK_BONUS_ANALYSES = 1; // small enough to never compete with paying
+const CHECKIN_ELIGIBLE_DAYS = 30; // decisions older than this can be checked in on
 
 const BLOCKED_PATTERNS = [
   /\b(murder|shoot someone|stab someone|attack someone|harm (him|her|them|myself)|hurt (him|her|them|myself)|assault|beat (him|her|them) up|blow up|bomb|poison (him|her|them)|strangle|choke (him|her|them)|suffocate|rape|sexually abuse)\b/i,
@@ -184,6 +189,14 @@ export default function Home() {
   const [blockedWarning, setBlockedWarning] = useState(false);
   const [activeTab, setActiveTab] = useState<"analyze" | "history" | "plans" | "settings">("analyze");
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [streakCount, setStreakCount] = useState(0);
+  const [lastAnalysisDate, setLastAnalysisDate] = useState<string | null>(null);
+  const [streakBonusGrantedDate, setStreakBonusGrantedDate] = useState<string | null>(null);
+  const [streakBonusActiveToday, setStreakBonusActiveToday] = useState(false);
+  const [streakToast, setStreakToast] = useState<string | null>(null);
+  const [checkinTarget, setCheckinTarget] = useState<Result | null>(null);
+  const [checkinValue, setCheckinValue] = useState(50);
+  const [checkinDismissedIds, setCheckinDismissedIds] = useState<string[]>([]);
 
   // ── Theme init ──
   useEffect(() => {
@@ -218,6 +231,7 @@ export default function Home() {
         setCurrentUserEmail(user.email ?? null);
         setCurrentUserName(user.user_metadata?.displayName ?? null);
         setCurrentUserPaid(Boolean(user.user_metadata?.isPaid));
+        loadStreakFromMetadata(user.user_metadata);
         loadHistory(user.id);
         loadDailyUsage(user.id);
       }
@@ -238,11 +252,14 @@ export default function Home() {
         }
 
         if (user) {
+          loadStreakFromMetadata(user.user_metadata);
           loadHistory(user.id);
           loadDailyUsage(user.id);
         } else {
           setHistory([]);
           setDailyUsage(0);
+          setStreakCount(0);
+          setLastAnalysisDate(null);
         }
       }
     );
@@ -285,6 +302,8 @@ export default function Home() {
         note: row.note ?? undefined,
         createdAt: row.created_at,
         originalInput: row.original_input ?? undefined,
+        actualRegret: typeof row.actual_regret === "number" ? row.actual_regret : undefined,
+        checkinAt: row.checkin_at ?? undefined,
       }));
       setHistory(rows);
       reconcileDailyUsage(userId, rows);
@@ -329,6 +348,63 @@ export default function Home() {
     });
   }
 
+  // ── Streaks ──
+  // Stored in Supabase user_metadata (not localStorage) so the streak survives a
+  // device switch or cleared browser storage — same anti-tamper logic as usage.
+  function loadStreakFromMetadata(metadata: Record<string, any> | undefined) {
+    const count = typeof metadata?.streakCount === "number" ? metadata.streakCount : 0;
+    const lastDate = typeof metadata?.lastAnalysisDate === "string" ? metadata.lastAnalysisDate : null;
+    const bonusGrantedDate = typeof metadata?.streakBonusGrantedDate === "string" ? metadata.streakBonusGrantedDate : null;
+
+    const today = new Date().toISOString().slice(0, 10);
+    const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+
+    // A streak only stays "alive" if the last analysis was today or yesterday.
+    // Anything older means the streak has lapsed even though we haven't written
+    // a reset yet — display it as lapsed without touching stored state until
+    // the user actually analyzes again.
+    const isLapsed = lastDate !== null && lastDate !== today && lastDate !== yesterday;
+    setStreakCount(isLapsed ? 0 : count);
+    setLastAnalysisDate(lastDate);
+    setStreakBonusGrantedDate(bonusGrantedDate);
+    setStreakBonusActiveToday(bonusGrantedDate === today);
+  }
+
+  // Called after a successful analysis. Returns the bonus-granted flag so the
+  // caller can show a toast, without doing the toast logic itself.
+  async function registerStreakProgress(userId: string): Promise<{ newStreak: number; bonusGranted: boolean }> {
+    const today = new Date().toISOString().slice(0, 10);
+    const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+
+    if (lastAnalysisDate === today) {
+      // Already counted today — no change.
+      return { newStreak: streakCount, bonusGranted: false };
+    }
+
+    const continuing = lastAnalysisDate === yesterday;
+    const newStreak = continuing ? streakCount + 1 : 1;
+    const earnsBonus = newStreak > 0 && newStreak % STREAK_MILESTONE === 0 && streakBonusGrantedDate !== today;
+
+    setStreakCount(newStreak);
+    setLastAnalysisDate(today);
+    if (earnsBonus) {
+      setStreakBonusGrantedDate(today);
+      setStreakBonusActiveToday(true);
+    }
+
+    if (supabase) {
+      await supabase.auth.updateUser({
+        data: {
+          streakCount: newStreak,
+          lastAnalysisDate: today,
+          ...(earnsBonus ? { streakBonusGrantedDate: today } : {}),
+        },
+      });
+    }
+
+    return { newStreak, bonusGranted: earnsBonus };
+  }
+
   // ── Save a decision to Supabase ──
   async function saveHistory(item: Result) {
     if (!currentUserId || !supabase) return;
@@ -344,6 +420,8 @@ export default function Home() {
       category: item.category,
       note: item.note ?? null,
       original_input: item.originalInput ?? null,
+      actual_regret: item.actualRegret ?? null,
+      checkin_at: item.checkinAt ?? null,
       created_at: item.createdAt ?? new Date().toISOString(),
     };
     const { error } = await supabase.from("decisions").upsert(row);
@@ -381,8 +459,13 @@ export default function Home() {
       return;
     }
 
-    if (!currentUserPaid && dailyUsage >= FREE_DAILY_LIMIT) {
-      setError("Your free daily limit is reached. Upgrade to Premium for unlimited analysis.");
+    const effectiveLimit = FREE_DAILY_LIMIT + (streakBonusActiveToday ? STREAK_BONUS_ANALYSES : 0);
+    if (!currentUserPaid && dailyUsage >= effectiveLimit) {
+      setError(
+        streakBonusActiveToday
+          ? "You've used today's streak bonus too — that's the daily cap for free accounts. Upgrade to Premium for unlimited analysis."
+          : "Your free daily limit is reached. Upgrade to Premium for unlimited analysis."
+      );
       return;
     }
     if (checkViolentContent(cleanValue)) { setBlockedWarning(true); return; }
@@ -407,6 +490,16 @@ export default function Home() {
         setDailyUsage(next);
         saveDailyUsage(currentUserId, next);
       }
+
+      if (currentUserId) {
+        const { newStreak, bonusGranted } = await registerStreakProgress(currentUserId);
+        if (bonusGranted) {
+          setStreakToast(`🔥 ${newStreak}-day streak! You earned 1 bonus analysis for today.`);
+        } else if (newStreak > 1 && newStreak % STREAK_MILESTONE !== 0) {
+          // Quiet day-to-day progress, no toast — only milestones interrupt.
+        }
+      }
+
       setText(value);
       setCopyStatus("");
       setNote("");
@@ -607,6 +700,25 @@ export default function Home() {
     setNoteStatus("Note saved.");
   }
 
+  // ── Outcome check-ins ──
+  function openCheckin(item: Result) {
+    setCheckinTarget(item);
+    setCheckinValue(item.regret_score); // anchor the slider near the original prediction
+  }
+
+  function dismissCheckin(id: string) {
+    setCheckinDismissedIds((prev) => [...prev, id]);
+    setCheckinTarget(null);
+  }
+
+  async function submitCheckin() {
+    if (!checkinTarget) return;
+    const updated: Result = { ...checkinTarget, actualRegret: checkinValue, checkinAt: new Date().toISOString() };
+    if (result?.id === updated.id) setResult(updated);
+    await saveHistory(updated);
+    setCheckinTarget(null);
+  }
+
   function downloadAnalysis() {
     if (!result) return;
     const payload = `RegretAI Decision Report\n\nTitle: ${result.title}\nCategory: ${CATEGORY_LABELS[result.category]}\nRegret: ${result.regret_score}%\n\nNow:\n${result.immediate}\n\n1 Month:\n${result.one_month}\n\n1 Year:\n${result.one_year}\n\nAdvice:\n${result.advice}\n\nNote:\n${result.note ?? "(none)"}\n`;
@@ -694,6 +806,28 @@ export default function Home() {
     return sorted.slice(-30);
   }, [history]);
 
+  // Decisions old enough to check in on, not yet checked in, not dismissed this session.
+  const pendingCheckins = useMemo(() => {
+    const cutoff = Date.now() - CHECKIN_ELIGIBLE_DAYS * 86400000;
+    return history.filter((item) => {
+      if (item.checkinAt) return false;
+      if (checkinDismissedIds.includes(item.id)) return false;
+      if (!item.createdAt) return false;
+      return new Date(item.createdAt).getTime() <= cutoff;
+    });
+  }, [history, checkinDismissedIds]);
+
+  // Once enough check-ins exist, show how close predictions tend to be —
+  // this is the number that makes "RegretAI" a credible name over time.
+  const predictionAccuracy = useMemo(() => {
+    const checkedIn = history.filter((item) => typeof item.actualRegret === "number");
+    if (checkedIn.length < 3) return null;
+    const avgDelta =
+      checkedIn.reduce((sum, item) => sum + Math.abs(item.regret_score - (item.actualRegret as number)), 0) /
+      checkedIn.length;
+    return { count: checkedIn.length, avgDelta: Math.round(avgDelta) };
+  }, [history]);
+
   return (
     <div className={`page ${dark ? "dark" : ""}`}>
       <div className="center">
@@ -704,7 +838,7 @@ export default function Home() {
             <div className="disclaimerContent">
               <span className="disclaimerIcon" aria-hidden="true">⚠️</span>
               <div>
-                <strong>For informational purposes only.</strong> RegretAI uses AI to simulate how decisions might feel over time. It is not a substitute for professional advice. Do not use for crisis situations — contact emergency services instead.
+                <strong>Safety Disclaimer:</strong> RegretAI is an automated simulation tool designed for personal evaluation and reflection. It is not managed by professionals, does not provide clinical or legal counsel, and cannot evaluate crisis or self-harm situations. If you are experiencing an emergency or immediate distress, please stop using this tool and contact standard localized health services or crisis hotlines immediately.
               </div>
             </div>
             <button className="disclaimerDismiss" onClick={() => setDisclaimerDismissed(true)}>Got it</button>
@@ -715,9 +849,14 @@ export default function Home() {
         <header className="topbar">
           <div>
             <h1 className="title"><span className="titleEmoji" aria-hidden="true">💀</span>RegretAI</h1>
-            <p className="subtitle">Simulate how a decision feels today, in one month, and in one year.</p>
+            <p className="subtitle">Quantify structural behavior blindspots and decode future choice satisfaction timelines before executing commitments.</p>
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center", position: "relative" }}>
+            {currentUserEmail && streakCount > 0 && (
+              <span className="streakBadge" title={`${streakCount}-day streak — analyze again before midnight to keep it going`}>
+                🔥 {streakCount}
+              </span>
+            )}
             {currentUserEmail ? (
               <>
                 <button className="secondaryBtn" onClick={() => setProfileMenuOpen((o) => !o)} aria-haspopup="menu" aria-expanded={profileMenuOpen}>
@@ -769,6 +908,27 @@ export default function Home() {
         {activeTab === "analyze" && (
           <>
             {checkoutMessage && <section className="status success checkoutMessage" style={{ marginTop: 20 }}>{checkoutMessage}</section>}
+            {streakToast && (
+              <section className="status success streakToast" style={{ marginTop: 20 }}>
+                {streakToast}
+                <button className="dismissInline" type="button" onClick={() => setStreakToast(null)} aria-label="Dismiss">✕</button>
+              </section>
+            )}
+            {pendingCheckins.length > 0 && !checkinTarget && (
+              <section className="checkinBanner" role="status">
+                <div>
+                  <strong>How did "{pendingCheckins[0].title}" actually turn out?</strong>
+                  <p className="sectionDescription">
+                    You analyzed this {formatDate(pendingCheckins[0].createdAt)}. A quick check-in helps us see how accurate the forecast was.
+                    {pendingCheckins.length > 1 && ` (${pendingCheckins.length - 1} more waiting.)`}
+                  </p>
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button className="primaryBtn" type="button" onClick={() => openCheckin(pendingCheckins[0])}>Check in</button>
+                  <button className="secondaryBtn" type="button" onClick={() => dismissCheckin(pendingCheckins[0].id)}>Not now</button>
+                </div>
+              </section>
+            )}
             <div className="mainLayout analyzeLayout">
               {/* LEFT */}
               <div className="inputColumn">
@@ -885,6 +1045,13 @@ export default function Home() {
                 <span className="statLabel">Most recent</span>
                 <strong>{hydrated ? (stats.latest ? formatDate(stats.latest) : "None yet") : "Loading…"}</strong>
               </article>
+              {predictionAccuracy && (
+                <article className="statCard">
+                  <span className="statLabel">Forecast accuracy</span>
+                  <strong>±{predictionAccuracy.avgDelta}%</strong>
+                  <span className="hintText">avg. gap across {predictionAccuracy.count} check-ins</span>
+                </article>
+              )}
             </section>
             <section className="historyPanel trendPanel">
               <div className="historyHeader">
@@ -929,10 +1096,20 @@ export default function Home() {
                       <button type="button" className="historyLink" onClick={() => handleHistorySelect(item)}>
                         <div>
                           <strong>{item.title}</strong>
-                          <div className="historyMeta">{CATEGORY_LABELS[item.category]} · {formatDate(item.createdAt)}</div>
+                          <div className="historyMeta">
+                            {CATEGORY_LABELS[item.category]} · {formatDate(item.createdAt)}
+                            {typeof item.actualRegret === "number" && (
+                              <span className="checkinTag"> · actually felt like {item.actualRegret}%</span>
+                            )}
+                          </div>
                         </div>
                       </button>
-                      <button type="button" className="deleteBtn" aria-label={`Delete ${item.title}`} onClick={() => deleteItem(item.id)}>✕</button>
+                      <div className="historyItemActions">
+                        {!item.checkinAt && (
+                          <button type="button" className="secondaryBtn checkinSmallBtn" onClick={() => openCheckin(item)}>Check in</button>
+                        )}
+                        <button type="button" className="deleteBtn" aria-label={`Delete ${item.title}`} onClick={() => deleteItem(item.id)}>✕</button>
+                      </div>
                     </div>
                   ))
                 )}
@@ -1052,7 +1229,7 @@ export default function Home() {
                 <div className="settingsRow">
                   <div>
                     <strong>RegretAI</strong>
-                    <p className="sectionDescription">Simulate how a decision feels today, in one month, and in one year. For informational purposes only — not a substitute for professional advice.</p>
+                    <p className="sectionDescription">Quantify structural behavior blindspots and decode future choice satisfaction timelines before executing commitments. For informational purposes only — not a substitute for professional advice.</p>
                   </div>
                 </div>
               </div>
@@ -1184,6 +1361,40 @@ export default function Home() {
                   {billingProcessing ? "Starting checkout..." : `Start ${selectedPlan.name} — ${selectedPlan.price}`}
                 </button>
                 <button className="secondaryBtn" type="button" onClick={closeBillingModal} disabled={billingProcessing}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ══════════════ CHECK-IN MODAL ══════════════ */}
+        {checkinTarget && (
+          <div className="authOverlay" role="dialog" aria-modal="true">
+            <div className="authModal checkinModal">
+              <h3>How did it actually feel?</h3>
+              <p className="authHint">
+                You analyzed <strong>"{checkinTarget.title}"</strong> and we predicted <strong>{checkinTarget.regret_score}% regret</strong>.
+                Looking back now, how much do you actually regret it?
+              </p>
+              <div className="checkinSliderRow">
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={checkinValue}
+                  onChange={(e) => setCheckinValue(Number(e.target.value))}
+                  className="checkinSlider"
+                  aria-label="Actual regret percentage"
+                />
+                <div className="checkinSliderValue">{checkinValue}%</div>
+              </div>
+              <div className="checkinQuickPicks">
+                {[0, 25, 50, 75, 100].map((v) => (
+                  <button key={v} type="button" className={`pill ${checkinValue === v ? "active" : ""}`} onClick={() => setCheckinValue(v)}>{v}%</button>
+                ))}
+              </div>
+              <div style={{ display: "flex", gap: 8, marginTop: 24 }}>
+                <button className="primaryBtn" style={{ flex: 1 }} onClick={submitCheckin}>Save my answer</button>
+                <button className="secondaryBtn" onClick={() => dismissCheckin(checkinTarget.id)}>Not now</button>
               </div>
             </div>
           </div>
