@@ -1,8 +1,3 @@
-Here is the complete, full `page.tsx` code.
-
-This version includes the dynamic `PASSWORD_RECOVERY` listener inside the auth `useEffect` hook. If Supabase strips the hash fragment or defaults to your home page layout on `https://regretai.app`, this listener will instantly intercept the event and auto-open the password reset modal layout directly on your homepage so the user can type their new password seamlessly.
-
-```tsx
 "use client";
 
 import { useEffect, useMemo, useState, useRef } from "react";
@@ -109,6 +104,7 @@ export default function Home() {
   const [authConfirmPassword, setAuthConfirmPassword] = useState("");
   const [verificationStep, setVerificationStep] = useState(false);
   const [resetEmailSent, setResetEmailSent] = useState(false);
+  const [isRecoveringPassword, setIsRecoveringPassword] = useState(false); // FIXED Flag
   const [authOtp, setAuthOtp] = useState("");
   const [currentUserPaid, setCurrentUserPaid] = useState(false);
   const [billingModal, setBillingModal] = useState(false);
@@ -175,8 +171,9 @@ export default function Home() {
         setCurrentUserName(user?.user_metadata?.displayName ?? null);
         setCurrentUserPaid(Boolean(user?.user_metadata?.isPaid));
         
-        // INTERCEPT USER PASSWORD RECOVERY REDIRECT EVENTS
+        // INTERCEPT RECOVERY AND LOCK VIEW STATE
         if (_event === "PASSWORD_RECOVERY") {
+          setIsRecoveringPassword(true);
           setAuthModal("reset-password");
           setVerificationStep(false);
         }
@@ -444,12 +441,13 @@ export default function Home() {
     if (updateError) {
       setError(updateError.message);
     } else {
+      setIsRecoveringPassword(false);
       setResetEmailSent(false);
-      setAuthModal("login");
+      setAuthModal(null); // Close fully since they are already authenticated!
       setAuthPassword("");
       setAuthConfirmPassword("");
       setError("");
-      alert("Password updated successfully! You can now log in with your new password.");
+      alert("Password updated successfully! Welcome back.");
     }
   }
 
@@ -929,7 +927,7 @@ export default function Home() {
               ) : authModal === "reset-password" ? (
                 <>
                   <h3>Reset password</h3>
-                  {resetEmailSent ? (
+                  {isRecoveringPassword ? (
                     <>
                       <div className="authFormFields">
                         <p className="authHint" style={{ marginBottom: 12 }}>A recovery session is active. Please type your chosen new password below.</p>
@@ -941,7 +939,15 @@ export default function Home() {
                         <button className="primaryBtn" style={{ flex: 1 }} onClick={handleFinalPasswordReset} disabled={loading}>
                           {loading ? "Updating..." : "Update Password"}
                         </button>
-                        <button className="secondaryBtn" onClick={() => { setResetEmailSent(false); setAuthModal(null); setError(""); }}>Cancel</button>
+                        <button className="secondaryBtn" onClick={() => { setIsRecoveringPassword(false); setAuthModal(null); setError(""); }}>Cancel</button>
+                      </div>
+                    </>
+                  ) : resetEmailSent ? (
+                    <>
+                      <p className="authHint">A password reset link was sent to <strong>{authEmail}</strong>. Check your inbox.</p>
+                      <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                        <button className="primaryBtn" onClick={() => { setResetEmailSent(false); setAuthModal("login"); }}>Back to login</button>
+                        <button className="secondaryBtn" onClick={() => { setResetEmailSent(false); setAuthModal(null); }}>Close</button>
                       </div>
                     </>
                   ) : (
@@ -1036,5 +1042,3 @@ export default function Home() {
     </div>
   );
 }
-
-```
