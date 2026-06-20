@@ -367,6 +367,21 @@ export default function Home() {
     setVerificationStep(true);
   }
 
+  // ── Auth: Verify Email OTP ──
+  async function verifyEmailOtp() {
+    setError("");
+    if (!supabase) { setError("Authentication is not configured."); return; }
+    const { error: verifyError } = await supabase.auth.verifyOtp({
+      email: authEmail.trim().toLowerCase(),
+      token: authOtp.trim(),
+      type: "signup",
+    });
+    if (verifyError) { setError(verifyError.message); return; }
+    setAuthModal(null);
+    setVerificationStep(false);
+    setAuthEmail(""); setAuthPassword(""); setAuthName(""); setAuthConfirmPassword(""); setAuthPhone(""); setAuthOtp("");
+  }
+
   // ── Auth: Log in ──
   async function login() {
     setError("");
@@ -891,17 +906,19 @@ export default function Home() {
           </div>
         )}
 
-        {/* ══════════════ AUTH MODAL ══════════════ */}
+        {/* ── ════════════ AUTH MODAL ══════════════ */}
         {authModal && (
           <div className="authOverlay" role="dialog" aria-modal="true">
             <div className="authModal">
               {verificationStep ? (
                 <>
-                  <h3>Check your email</h3>
-                  <p className="authHint">A verification link was sent to <strong>{authEmail}</strong>. Click it to complete your sign up, then log in here.</p>
+                  <h3>Verify your email</h3>
+                  <p className="authHint">Enter the 6-digit verification code sent to <strong>{authEmail}</strong>.</p>
+                  <label>Verification code<input value={authOtp} onChange={(e) => setAuthOtp(e.target.value)} type="text" placeholder="123456" maxLength={6} /></label>
+                  {error && <div className="status error" role="alert">{error}</div>}
                   <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                    <button className="primaryBtn" onClick={() => { setVerificationStep(false); setAuthModal("login"); }}>Go to login</button>
-                    <button className="secondaryBtn" onClick={() => { setVerificationStep(false); setAuthModal(null); }}>Close</button>
+                    <button className="primaryBtn" onClick={verifyEmailOtp}>Verify code</button>
+                    <button className="secondaryBtn" onClick={() => { setVerificationStep(false); setAuthOtp(""); setError(""); }}>Back</button>
                   </div>
                 </>
               ) : authModal === "reset-password" ? (
