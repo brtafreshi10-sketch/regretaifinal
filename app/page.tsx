@@ -10,13 +10,7 @@ type SupabaseClient = ReturnType<typeof createBrowserClient>;
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-console.log("URL:", process.env.NEXT_PUBLIC_SUPABASE_URL);
 
-// Guard against missing env vars so a misconfiguration fails loudly in the
-// browser console instead of crashing the entire Next.js build during
-// prerendering. Make sure NEXT_PUBLIC_SUPABASE_URL and
-// NEXT_PUBLIC_SUPABASE_ANON_KEY are set in Vercel → Project Settings →
-// Environment Variables for every environment you deploy to, then redeploy.
 let supabase: SupabaseClient | null = null;
 
 if (supabaseUrl && supabaseAnonKey) {
@@ -103,16 +97,14 @@ export default function Home() {
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
   const [currentUserName, setCurrentUserName] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
-  const [authModal, setAuthModal] = useState<null | "login" | "signup" | "reset-password" | "phone">(null);
+  const [authModal, setAuthModal] = useState<null | "login" | "signup" | "reset-password">(null);
   const [authName, setAuthName] = useState("");
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [authConfirmPassword, setAuthConfirmPassword] = useState("");
   const [verificationStep, setVerificationStep] = useState(false);
   const [resetEmailSent, setResetEmailSent] = useState(false);
-  const [authPhone, setAuthPhone] = useState("");
   const [authOtp, setAuthOtp] = useState("");
-  const [phoneStep, setPhoneStep] = useState<"enter-phone" | "enter-otp">("enter-phone");
   const [currentUserPaid, setCurrentUserPaid] = useState(false);
   const [billingModal, setBillingModal] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState(PLANS[1]);
@@ -158,7 +150,6 @@ export default function Home() {
       return;
     }
 
-    // Check existing session
     supabase.auth.getSession().then(({ data }: { data: { session: Session | null } }) => {
       const user = data.session?.user;
       if (user) {
@@ -171,7 +162,6 @@ export default function Home() {
       }
     });
 
-    // Listen for auth changes (login, logout, token refresh)
     const { data: listener } = supabase.auth.onAuthStateChange(
       (_event: AuthChangeEvent, session: Session | null) => {
         const user = session?.user ?? null;
@@ -189,7 +179,6 @@ export default function Home() {
       }
     );
 
-    // Service worker
     if ("serviceWorker" in navigator) {
       if (process.env.NODE_ENV === "production") {
         navigator.serviceWorker.register("/sw.js").catch(console.warn);
@@ -198,7 +187,6 @@ export default function Home() {
       }
     }
 
-    // Stripe session check
     const params = new URLSearchParams(window.location.search);
     const sessionId = params.get("session_id");
     if (sessionId) verifyCheckout(sessionId);
@@ -238,7 +226,6 @@ export default function Home() {
     }
   }
 
-  // ── Daily usage (still localStorage — just a counter, not sensitive) ──
   function getUsageKey(userId: string) {
     return `regret-daily-usage-${userId}`;
   }
@@ -276,7 +263,6 @@ export default function Home() {
     };
     const { error } = await supabase.from("decisions").upsert(row);
     if (error) console.error("Failed to save decision:", error);
-    // Optimistic local update
     setHistory((prev) => [item, ...prev.filter((h) => h.id !== item.id)]);
   }
 
@@ -341,11 +327,9 @@ export default function Home() {
     setError("");
     if (!supabase) { setError("Authentication is not configured."); return; }
     const email = authEmail.trim().toLowerCase();
-    const phone = authPhone.trim();
     
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setError("Please enter a valid email address."); return; }
     if (authName.trim().length < 2 || authName.trim().length > 30) { setError("Display name must be 2–30 characters."); return; }
-    if (!phone || phone.length < 10) { setError("Please enter a valid phone number (e.g., +1234567890)."); return; }
     if (authPassword.length < 8 || !/[A-Z]/.test(authPassword) || !/[a-z]/.test(authPassword) || !/\d/.test(authPassword)) {
       setError("Password must be 8+ characters with upper/lowercase letters and a number."); return;
     }
@@ -357,8 +341,7 @@ export default function Home() {
       options: { 
         data: { 
           displayName: authName.trim(), 
-          isPaid: false,
-          phone: phone 
+          isPaid: false
         } 
       },
     });
@@ -379,7 +362,7 @@ export default function Home() {
     if (verifyError) { setError(verifyError.message); return; }
     setAuthModal(null);
     setVerificationStep(false);
-    setAuthEmail(""); setAuthPassword(""); setAuthName(""); setAuthConfirmPassword(""); setAuthPhone(""); setAuthOtp("");
+    setAuthEmail(""); setAuthPassword(""); setAuthName(""); setAuthConfirmPassword(""); setAuthOtp("");
   }
 
   // ── Auth: Log in ──
@@ -398,7 +381,7 @@ export default function Home() {
       return;
     }
     setAuthModal(null);
-    setAuthEmail(""); setAuthPassword(""); setAuthName(""); setAuthConfirmPassword(""); setAuthPhone("");
+    setAuthEmail(""); setAuthPassword(""); setAuthName(""); setAuthConfirmPassword("");
   }
 
   // ── Auth: Log out ──
@@ -420,31 +403,6 @@ export default function Home() {
     });
     if (resetError) { setError(resetError.message); return; }
     setResetEmailSent(true);
-  }
-
-  // ── Auth: Phone sign in — send OTP ──
-  async function sendPhoneOtp() {
-    setError("");
-    if (!supabase) { setError("Authentication is not configured."); return; }
-    const phone = authPhone.trim();
-    if (!phone) { setError("Please enter a phone number."); return; }
-    const { error: otpError } = await supabase.auth.signInWithOtp({ phone });
-    if (otpError) { setError(otpError.message); return; }
-    setPhoneStep("enter-otp");
-  }
-
-  // ── Auth: Phone sign in — verify OTP ──
-  async function verifyPhoneOtp() {
-    setError("");
-    if (!supabase) { setError("Authentication is not configured."); return; }
-    const { error: verifyError } = await supabase.auth.verifyOtp({
-      phone: authPhone.trim(),
-      token: authOtp.trim(),
-      type: "sms",
-    });
-    if (verifyError) { setError(verifyError.message); return; }
-    setAuthModal(null);
-    setAuthPhone(""); setAuthOtp(""); setPhoneStep("enter-phone");
   }
 
   // ── Billing ──
@@ -482,7 +440,6 @@ export default function Home() {
       const data = await response.json();
       if (!response.ok || !data.success) { setPaymentError(data?.error || "Unable to verify payment session."); return; }
 
-      // Update user metadata in Supabase
       await supabase.auth.updateUser({ data: { isPaid: true, subscriptionDate: new Date().toISOString() } });
       setCurrentUserPaid(true);
       setCheckoutMessage("Your Premium subscription is now active.");
@@ -944,31 +901,6 @@ export default function Home() {
                     </>
                   )}
                 </>
-              ) : authModal === "phone" ? (
-                <>
-                  <h3>Sign in with phone</h3>
-                  {phoneStep === "enter-phone" ? (
-                    <>
-                      <p className="authHint">Enter your phone number with country code (e.g. +1234567890).</p>
-                      <label>Phone number<input value={authPhone} onChange={(e) => setAuthPhone(e.target.value)} type="tel" placeholder="+1234567890" /></label>
-                      {error && <div className="status error" role="alert">{error}</div>}
-                      <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                        <button className="primaryBtn" onClick={sendPhoneOtp}>Send code</button>
-                        <button className="secondaryBtn" onClick={() => { setAuthModal("login"); setError(""); setAuthPhone(""); }}>Back</button>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <p className="authHint">Enter the 6-digit code sent to <strong>{authPhone}</strong>.</p>
-                      <label>Verification code<input value={authOtp} onChange={(e) => setAuthOtp(e.target.value)} type="text" placeholder="123456" maxLength={6} /></label>
-                      {error && <div className="status error" role="alert">{error}</div>}
-                      <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                        <button className="primaryBtn" onClick={verifyPhoneOtp}>Verify</button>
-                        <button className="secondaryBtn" onClick={() => { setPhoneStep("enter-phone"); setAuthOtp(""); setError(""); }}>Back</button>
-                      </div>
-                    </>
-                  )}
-                </>
               ) : (
                 <>
                   <h3>{authModal === "signup" ? "Create an account" : "Log in"}</h3>
@@ -978,10 +910,6 @@ export default function Home() {
                       <label>Display name<input value={authName} onChange={(e) => setAuthName(e.target.value)} type="text" placeholder="Alex" /></label>
                     )}
                     <label>Email<input value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} type="email" placeholder="you@example.com" /></label>
-                    
-                    {authModal === "signup" && (
-                      <label>Phone number<input value={authPhone} onChange={(e) => setAuthPhone(e.target.value)} type="tel" placeholder="+1234567890" /></label>
-                    )}
                     
                     <label>Password<input value={authPassword} onChange={(e) => setAuthPassword(e.target.value)} type="password" placeholder="••••••••" /></label>
                     
@@ -1006,7 +934,6 @@ export default function Home() {
                         <div className="authLinkGroup">
                           <span>No account? <button className="linkButton" onClick={() => { setAuthModal("signup"); setError(""); }}>Sign up</button></span>
                           <span>Forgot your password? <button className="linkButton" onClick={() => { setAuthModal("reset-password"); setError(""); }}>Reset it</button></span>
-                          <span>Want to use SMS? <button className="linkButton" onClick={() => { setAuthModal("phone"); setError(""); setPhoneStep("enter-phone"); }}>Use phone</button></span>
                         </div>
                       )}
                   </div>
