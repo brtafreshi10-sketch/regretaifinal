@@ -104,7 +104,7 @@ export default function Home() {
   const [authConfirmPassword, setAuthConfirmPassword] = useState("");
   const [verificationStep, setVerificationStep] = useState(false);
   const [resetEmailSent, setResetEmailSent] = useState(false);
-  const [isRecoveringPassword, setIsRecoveringPassword] = useState(false); // FIXED Flag
+  const [isRecoveringPassword, setIsRecoveringPassword] = useState(false);
   const [authOtp, setAuthOtp] = useState("");
   const [currentUserPaid, setCurrentUserPaid] = useState(false);
   const [billingModal, setBillingModal] = useState(false);
@@ -417,7 +417,8 @@ export default function Home() {
     const cleanOrigin = window.location.origin.replace(/\/$/, "");
 
     const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${cleanOrigin}/reset-password`,
+      // FIXED: Point back to main domain root so this client-side page catches the incoming hash token session
+      redirectTo: `${cleanOrigin}/`,
     });
     if (resetError) { setError(resetError.message); return; }
     setResetEmailSent(true);
