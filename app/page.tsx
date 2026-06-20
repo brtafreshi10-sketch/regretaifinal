@@ -849,7 +849,7 @@ export default function Home() {
         <header className="topbar">
           <div>
             <h1 className="title"><span className="titleEmoji" aria-hidden="true">💀</span>RegretAI</h1>
-            <p className="subtitle">Quantify structural behavior blindspots and decode future choice satisfaction timelines before executing commitments.</p>
+            <p className="subtitle">See how your choices will impact you in a day, month, or</p>
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center", position: "relative" }}>
             {currentUserEmail && streakCount > 0 && (
@@ -1229,7 +1229,7 @@ export default function Home() {
                 <div className="settingsRow">
                   <div>
                     <strong>RegretAI</strong>
-                    <p className="sectionDescription">Quantify structural behavior blindspots and decode future choice satisfaction timelines before executing commitments. For informational purposes only — not a substitute for professional advice.</p>
+                    <p className="sectionDescription">See how your choices will impact you in a day, month, or year -For informational purposes only — not a substitute for professional advice</p>
                   </div>
                 </div>
               </div>
