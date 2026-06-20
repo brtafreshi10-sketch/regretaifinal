@@ -33,6 +33,7 @@ type Result = {
   category: "money" | "relationships" | "school" | "health" | "other";
   note?: string;
   createdAt?: string;
+  originalInput?: string;
 };
 
 const CATEGORY_LABELS: Record<Result["category"] | "all", string> = {
@@ -47,14 +48,19 @@ const CATEGORY_LABELS: Record<Result["category"] | "all", string> = {
 const FREE_DAILY_LIMIT = 5;
 
 const BLOCKED_PATTERNS = [
-  /\b(kill|murder|shoot|stab|attack|harm|hurt|assault|beat up|destroy|blow up|bomb|poison|strangle|choke|suffocate|rape|abuse)\b/i,
-  /\b(suicide|self.harm|cut myself|end my life|kill myself)\b/i,
-  /\b(weapon|gun|knife|explosive|grenade)\b/i,
+  /\b(murder|shoot someone|stab someone|attack someone|harm (him|her|them|myself)|hurt (him|her|them|myself)|assault|beat (him|her|them) up|blow up|bomb|poison (him|her|them)|strangle|choke (him|her|them)|suffocate|rape|sexually abuse)\b/i,
+  /\b(suicide|self.harm|cut myself|end my life|kill myself|kill (him|her|them))\b/i,
+  /\b(buy a gun|get a weapon|use a knife on|build (a|an) (bomb|explosive))\b/i,
 ];
 
 // Simple list of words that are purely conversational greetings or too short to be a decision
 const GREETING_PATTERNS = /^\s*(hi|hello|hey|yo|sup|greetings|hola|good morning|good afternoon|good evening|test|testing|please|help)\b\s*$/i;
 
+// NOTE: this client-side check is a fast first pass for UX only (instant feedback,
+// no round-trip). It is NOT a security boundary — anyone can bypass it by editing
+// the request in devtools. The /api/analyze route (not provided in this file) must
+// run its own server-side moderation check before calling the model; that is the
+// only enforcement that actually matters.
 function checkViolentContent(input: string): boolean {
   return BLOCKED_PATTERNS.some((pattern) => pattern.test(input));
 }
@@ -88,6 +94,57 @@ const EXAMPLES = [
   "Is it smarter to invest my savings instead of buying a new car?",
   "Should I tell my friend how I really feel about our relationship?",
 ];
+
+function RegretTrendChart({ points }: { points: Result[] }) {
+  if (points.length < 2) {
+    return (
+      <div className="emptyState">Save a few more decisions to see your regret trend over time.</div>
+    );
+  }
+
+  const width = 720;
+  const height = 160;
+  const padX = 16;
+  const padY = 20;
+  const innerW = width - padX * 2;
+  const innerH = height - padY * 2;
+
+  const xStep = points.length > 1 ? innerW / (points.length - 1) : 0;
+  const coords = points.map((p, i) => {
+    const x = padX + i * xStep;
+    const y = padY + innerH - (Math.max(0, Math.min(100, p.regret_score)) / 100) * innerH;
+    return { x, y, point: p };
+  });
+
+  const linePath = coords.map((c, i) => `${i === 0 ? "M" : "L"}${c.x.toFixed(1)},${c.y.toFixed(1)}`).join(" ");
+  const areaPath = `${linePath} L${coords[coords.length - 1].x.toFixed(1)},${(padY + innerH).toFixed(1)} L${coords[0].x.toFixed(1)},${(padY + innerH).toFixed(1)} Z`;
+
+  return (
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      className="trendChartSvg"
+      role="img"
+      aria-label="Line chart of regret score over time across saved decisions"
+    >
+      {[0, 25, 50, 75, 100].map((v) => {
+        const y = padY + innerH - (v / 100) * innerH;
+        return (
+          <g key={v}>
+            <line x1={padX} y1={y} x2={width - padX} y2={y} className="trendGridLine" />
+            <text x={2} y={y + 3} className="trendAxisLabel">{v}</text>
+          </g>
+        );
+      })}
+      <path d={areaPath} className="trendArea" />
+      <path d={linePath} className="trendLine" />
+      {coords.map((c, i) => (
+        <circle key={c.point.id ?? i} cx={c.x} cy={c.y} r={3.5} className="trendDot">
+          <title>{`${c.point.title} — ${c.point.regret_score}%`}</title>
+        </circle>
+      ))}
+    </svg>
+  );
+}
 
 export default function Home() {
   const resultRef = useRef<HTMLDivElement>(null);
@@ -216,20 +273,21 @@ export default function Home() {
         .eq("user_id", userId)
         .order("created_at", { ascending: false });
       if (error) throw error;
-      setHistory(
-        (data ?? []).map((row: Record<string, any>) => ({
-          id: row.id,
-          title: row.title,
-          immediate: row.immediate,
-          one_month: row.one_month,
-          one_year: row.one_year,
-          regret_score: row.regret_score,
-          advice: row.advice,
-          category: row.category,
-          note: row.note ?? undefined,
-          createdAt: row.created_at,
-        }))
-      );
+      const rows: Result[] = (data ?? []).map((row: Record<string, any>) => ({
+        id: row.id,
+        title: row.title,
+        immediate: row.immediate,
+        one_month: row.one_month,
+        one_year: row.one_year,
+        regret_score: typeof row.regret_score === "number" ? row.regret_score : 0,
+        advice: row.advice,
+        category: row.category,
+        note: row.note ?? undefined,
+        createdAt: row.created_at,
+        originalInput: row.original_input ?? undefined,
+      }));
+      setHistory(rows);
+      reconcileDailyUsage(userId, rows);
     } catch (err) {
       console.error("Failed to load history:", err);
     } finally {
@@ -241,6 +299,8 @@ export default function Home() {
     return `regret-daily-usage-${userId}`;
   }
 
+  // Local cache is just a fast first paint. The real count is reconciled against
+  // Supabase history below, so clearing localStorage can't be used to dodge the limit.
   function loadDailyUsage(userId: string) {
     const key = getUsageKey(userId);
     const raw = localStorage.getItem(key);
@@ -254,6 +314,19 @@ export default function Home() {
 
   function saveDailyUsage(userId: string, count: number) {
     localStorage.setItem(getUsageKey(userId), JSON.stringify({ date: new Date().toISOString().slice(0, 10), count }));
+  }
+
+  // Reconcile usage against actual saved decisions from today — the source of
+  // truth an attacker can't wipe just by clearing browser storage.
+  // Note: true enforcement still belongs server-side in /api/analyze (not provided here).
+  function reconcileDailyUsage(userId: string, rows: Result[]) {
+    const today = new Date().toISOString().slice(0, 10);
+    const todaysCount = rows.filter((r) => (r.createdAt ?? "").slice(0, 10) === today).length;
+    setDailyUsage((prev) => {
+      const next = Math.max(prev, todaysCount);
+      saveDailyUsage(userId, next);
+      return next;
+    });
   }
 
   // ── Save a decision to Supabase ──
@@ -270,6 +343,7 @@ export default function Home() {
       advice: item.advice,
       category: item.category,
       note: item.note ?? null,
+      original_input: item.originalInput ?? null,
       created_at: item.createdAt ?? new Date().toISOString(),
     };
     const { error } = await supabase.from("decisions").upsert(row);
@@ -324,7 +398,7 @@ export default function Home() {
       const data = await res.json();
       if (!res.ok || data?.error) throw new Error(data?.error ?? "Unable to analyze your decision.");
 
-      const withId: Result = { ...data, id: crypto.randomUUID(), createdAt: new Date().toISOString() };
+      const withId: Result = { ...data, id: crypto.randomUUID(), createdAt: new Date().toISOString(), originalInput: cleanValue };
       setResult(withId);
       await saveHistory(withId);
 
@@ -345,6 +419,7 @@ export default function Home() {
 
   // ── Auth: Sign up ──
   async function signup() {
+    if (loading) return;
     setError("");
     if (!supabase) { setError("Authentication is not configured."); return; }
     const email = authEmail.trim().toLowerCase();
@@ -356,6 +431,7 @@ export default function Home() {
     }
     if (authPassword !== authConfirmPassword) { setError("Passwords do not match."); return; }
 
+    setLoading(true);
     const { data, error: signUpError } = await supabase.auth.signUp({
       email,
       password: authPassword,
@@ -366,6 +442,7 @@ export default function Home() {
         } 
       },
     });
+    setLoading(false);
 
     if (signUpError) { setError(signUpError.message ?? JSON.stringify(signUpError)); return; }
     
@@ -379,13 +456,16 @@ export default function Home() {
 
   // ── Auth: Verify Email OTP ──
   async function verifyEmailOtp() {
+    if (loading) return;
     setError("");
     if (!supabase) { setError("Authentication is not configured."); return; }
+    setLoading(true);
     const { error: verifyError } = await supabase.auth.verifyOtp({
       email: authEmail.trim().toLowerCase(),
       token: authOtp.trim(),
       type: "signup",
     });
+    setLoading(false);
     if (verifyError) { setError(verifyError.message); return; }
     setAuthModal(null);
     setVerificationStep(false);
@@ -394,13 +474,16 @@ export default function Home() {
 
   // ── Auth: Log in ──
   async function login() {
+    if (loading) return;
     setError("");
     if (!supabase) { setError("Authentication is not configured."); return; }
     const email = authEmail.trim().toLowerCase();
     if (!email) { setError("Please enter your email."); return; }
     if (!authPassword) { setError("Please enter your password."); return; }
 
+    setLoading(true);
     const { error: signInError } = await supabase.auth.signInWithPassword({ email, password: authPassword });
+    setLoading(false);
     if (signInError) {
       setError(signInError.message === "Invalid login credentials"
         ? "Incorrect email or password."
@@ -421,6 +504,7 @@ export default function Home() {
 
   // ── Auth: Reset password ──
   async function sendResetEmail() {
+    if (loading) return;
     setError("");
     if (!supabase) { setError("Authentication is not configured."); return; }
     const email = authEmail.trim().toLowerCase();
@@ -428,9 +512,11 @@ export default function Home() {
     
     const cleanOrigin = window.location.origin.replace(/\/$/, "");
 
+    setLoading(true);
     const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${cleanOrigin}/`,
     });
+    setLoading(false);
     if (resetError) { setError(resetError.message); return; }
     setResetEmailSent(true);
   }
@@ -531,6 +617,34 @@ export default function Home() {
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
   }
 
+  function csvEscape(value: string) {
+    const needsQuotes = /[",\n]/.test(value);
+    const escaped = value.replace(/"/g, '""');
+    return needsQuotes ? `"${escaped}"` : escaped;
+  }
+
+  function downloadHistoryCsv() {
+    if (history.length === 0) return;
+    const headers = ["Date", "Title", "Category", "Regret Score", "Immediate", "1 Month", "1 Year", "Advice", "Note"];
+    const rows = history.map((item) => [
+      item.createdAt ? new Date(item.createdAt).toISOString() : "",
+      item.title,
+      CATEGORY_LABELS[item.category],
+      String(item.regret_score),
+      item.immediate,
+      item.one_month,
+      item.one_year,
+      item.advice,
+      item.note ?? "",
+    ]);
+    const csv = [headers, ...rows].map((row) => row.map((cell) => csvEscape(cell)).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `regretai-history-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  }
+
   function toggleTheme() {
     const next = !dark;
     setDark(next);
@@ -569,6 +683,15 @@ export default function Home() {
     const total = history.length;
     const average = total ? Math.round(history.reduce((s, i) => s + i.regret_score, 0) / total) : 0;
     return { total, average, latest: history[0]?.createdAt };
+  }, [history]);
+
+  // Chronological (oldest → newest) points for the trend chart, capped to the most
+  // recent 30 so the chart stays readable for heavy users.
+  const trendPoints = useMemo(() => {
+    const sorted = [...history]
+      .filter((item) => typeof item.regret_score === "number" && item.createdAt)
+      .sort((a, b) => new Date(a.createdAt!).getTime() - new Date(b.createdAt!).getTime());
+    return sorted.slice(-30);
   }, [history]);
 
   return (
@@ -717,7 +840,7 @@ export default function Home() {
                       <button className="primaryBtn" onClick={copyAnalysis}>Copy</button>
                       <button className="secondaryBtn" type="button" onClick={downloadAnalysis}>Download</button>
                       <button className="secondaryBtn" type="button" onClick={shareAnalysis}>Share</button>
-                      <button className="secondaryBtn" type="button" onClick={() => analyze(result.title)}>Re-run</button>
+                      <button className="secondaryBtn" type="button" onClick={() => analyze(result.originalInput ?? result.title)}>Re-run</button>
                     </div>
                     {copyStatus && <div className="status success">{copyStatus}</div>}
                     <div className="noteSection">
@@ -763,13 +886,29 @@ export default function Home() {
                 <strong>{hydrated ? (stats.latest ? formatDate(stats.latest) : "None yet") : "Loading…"}</strong>
               </article>
             </section>
+            <section className="historyPanel trendPanel">
+              <div className="historyHeader">
+                <div>
+                  <h3>Regret over time</h3>
+                  <p className="historyMeta">Each point is a saved decision, oldest to newest.</p>
+                </div>
+              </div>
+              <RegretTrendChart points={trendPoints} />
+            </section>
             <section className="historyPanel">
               <div className="historyHeader">
                 <div>
                   <h3>Recent decisions</h3>
                   <p className="historyMeta">Filter, search, and reopen any saved analysis.</p>
                 </div>
-                <button className="secondaryBtn" type="button" onClick={clearHistory} disabled={history.length === 0}>🗑️ Clear all</button>
+                <div style={{ display: "flex", gap: 8 }}>
+                  {currentUserPaid ? (
+                    <button className="secondaryBtn" type="button" onClick={downloadHistoryCsv} disabled={history.length === 0}>⬇️ Export CSV</button>
+                  ) : (
+                    <button className="secondaryBtn" type="button" onClick={() => setActiveTab("plans")} title="CSV export is a paid feature">⬇️ Export CSV ★</button>
+                  )}
+                  <button className="secondaryBtn" type="button" onClick={clearHistory} disabled={history.length === 0}>🗑️ Clear all</button>
+                </div>
               </div>
               <div className="filterRow">
                 <div className="buttonGroup">
@@ -932,8 +1071,8 @@ export default function Home() {
                   <label>Verification code<input value={authOtp} onChange={(e) => setAuthOtp(e.target.value)} type="text" placeholder="123456" maxLength={6} /></label>
                   {error && <div className="status error" role="alert">{error}</div>}
                   <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                    <button className="primaryBtn" onClick={verifyEmailOtp}>Verify code</button>
-                    <button className="secondaryBtn" onClick={() => { setVerificationStep(false); setAuthOtp(""); setError(""); }}>Back</button>
+                    <button className="primaryBtn" onClick={verifyEmailOtp} disabled={loading}>{loading ? "Verifying..." : "Verify code"}</button>
+                    <button className="secondaryBtn" onClick={() => { setVerificationStep(false); setAuthOtp(""); setError(""); }} disabled={loading}>Back</button>
                   </div>
                 </>
               ) : authModal === "reset-password" ? (
@@ -968,8 +1107,8 @@ export default function Home() {
                       <label>Email<input value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} type="email" placeholder="you@example.com" /></label>
                       {error && <div className="status error" role="alert">{error}</div>}
                       <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                        <button className="primaryBtn" onClick={sendResetEmail}>Send reset link</button>
-                        <button className="secondaryBtn" onClick={() => { setAuthModal("login"); setError(""); }}>Back</button>
+                        <button className="primaryBtn" onClick={sendResetEmail} disabled={loading}>{loading ? "Sending..." : "Send reset link"}</button>
+                        <button className="secondaryBtn" onClick={() => { setAuthModal("login"); setError(""); }} disabled={loading}>Back</button>
                       </div>
                     </>
                   )}
@@ -994,10 +1133,10 @@ export default function Home() {
                   {error && <div className="status error" role="alert">{error}</div>}
                   
                   <div style={{ display: "flex", gap: 8, marginTop: 24 }}>
-                    <button className="primaryBtn" style={{ flex: 1 }} onClick={() => authModal === "signup" ? signup() : login()}>
-                      {authModal === "signup" ? "Sign up" : "Log in"}
+                    <button className="primaryBtn" style={{ flex: 1 }} onClick={() => authModal === "signup" ? signup() : login()} disabled={loading}>
+                      {loading ? (authModal === "signup" ? "Signing up..." : "Logging in...") : (authModal === "signup" ? "Sign up" : "Log in")}
                     </button>
-                    <button className="secondaryBtn" onClick={() => { setAuthModal(null); setError(""); }}>Cancel</button>
+                    <button className="secondaryBtn" onClick={() => { setAuthModal(null); setError(""); }} disabled={loading}>Cancel</button>
                   </div>
                   
                   <div className="authLinksBox">
