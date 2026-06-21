@@ -22,6 +22,14 @@ if (supabaseUrl && supabaseAnonKey) {
   );
 }
 
+// Client-side fallback to prevent crashes on non-secure local testing environments (http://)
+function safeUUID(): string {
+  if (typeof window !== "undefined" && window.crypto && typeof window.crypto.randomUUID === "function") {
+    return window.crypto.randomUUID();
+  }
+  return "id-" + Math.random().toString(36).substring(2, 11) + "-" + Date.now().toString(36);
+}
+
 type Result = {
   id: string;
   title: string;
@@ -136,7 +144,7 @@ function RegretTrendChart({ points }: { points: Result[] }) {
         return (
           <g key={v}>
             <line x1={padX} y1={y} x2={width - padX} y2={y} className="trendGridLine" />
-            <text x={2} y={y + 3} className="trendAxisLabel">{v}</text>
+            <text x={2} y={y} dominantBaseline="middle" className="trendAxisLabel">{v}</text>
           </g>
         );
       })}
@@ -481,7 +489,7 @@ export default function Home() {
       const data = await res.json();
       if (!res.ok || data?.error) throw new Error(data?.error ?? "Unable to analyze your decision.");
 
-      const withId: Result = { ...data, id: crypto.randomUUID(), createdAt: new Date().toISOString(), originalInput: cleanValue };
+      const withId: Result = { ...data, id: safeUUID(), createdAt: new Date().toISOString(), originalInput: cleanValue };
       setResult(withId);
       await saveHistory(withId);
 
