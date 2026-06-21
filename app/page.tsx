@@ -22,14 +22,6 @@ if (supabaseUrl && supabaseAnonKey) {
   );
 }
 
-// Client-side fallback to prevent crashes on non-secure local testing environments (http://)
-function safeUUID(): string {
-  if (typeof window !== "undefined" && window.crypto && typeof window.crypto.randomUUID === "function") {
-    return window.crypto.randomUUID();
-  }
-  return "id-" + Math.random().toString(36).substring(2, 11) + "-" + Date.now().toString(36);
-}
-
 type Result = {
   id: string;
   title: string;
@@ -56,9 +48,9 @@ const CATEGORY_LABELS: Record<Result["category"] | "all", string> = {
 };
 
 const FREE_DAILY_LIMIT = 5;
-const STREAK_MILESTONE = 7; // every Nth consecutive day grants a bonus
-const STREAK_BONUS_ANALYSES = 1; // small enough to never compete with paying
-const CHECKIN_ELIGIBLE_DAYS = 30; // decisions older than this can be checked in on
+const STREAK_MILESTONE = 7; 
+const STREAK_BONUS_ANALYSES = 1; 
+const CHECKIN_ELIGIBLE_DAYS = 30; 
 
 const BLOCKED_PATTERNS = [
   /\b(murder|shoot someone|stab someone|attack someone|harm (him|her|them|myself)|hurt (him|her|them|myself)|assault|beat (him|her|them) up|blow up|bomb|poison (him|her|them)|strangle|choke (him|her|them)|suffocate|rape|sexually abuse)\b/i,
@@ -66,14 +58,8 @@ const BLOCKED_PATTERNS = [
   /\b(buy a gun|get a weapon|use a knife on|build (a|an) (bomb|explosive))\b/i,
 ];
 
-// Simple list of words that are purely conversational greetings or too short to be a decision
 const GREETING_PATTERNS = /^\s*(hi|hello|hey|yo|sup|greetings|hola|good morning|good afternoon|good evening|test|testing|please|help)\b\s*$/i;
 
-// NOTE: this client-side check is a fast first pass for UX only (instant feedback,
-// no round-trip). It is NOT a security boundary — anyone can bypass it by editing
-// the request in devtools. The /api/analyze route (not provided in this file) must
-// run its own server-side moderation check before calling the model; that is the
-// only enforcement that actually matters.
 function checkViolentContent(input: string): boolean {
   return BLOCKED_PATTERNS.some((pattern) => pattern.test(input));
 }
@@ -144,7 +130,7 @@ function RegretTrendChart({ points }: { points: Result[] }) {
         return (
           <g key={v}>
             <line x1={padX} y1={y} x2={width - padX} y2={y} className="trendGridLine" />
-            <text x={2} y={y} dominantBaseline="middle" className="trendAxisLabel">{v}</text>
+            <text x={2} y={y + 3} className="trendAxisLabel">{v}</text>
           </g>
         );
       })}
@@ -205,6 +191,19 @@ export default function Home() {
   const [checkinTarget, setCheckinTarget] = useState<Result | null>(null);
   const [checkinValue, setCheckinValue] = useState(50);
   const [checkinDismissedIds, setCheckinDismissedIds] = useState<string[]>([]);
+
+  // ── Auto-Scroll Mechanics for responsive viewing ──
+  useEffect(() => {
+    if (loading && resultRef.current) {
+      resultRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [loading]);
+
+  useEffect(() => {
+    if (result && resultRef.current) {
+      resultRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [result]);
 
   // ── Theme init ──
   useEffect(() => {
@@ -326,8 +325,6 @@ export default function Home() {
     return `regret-daily-usage-${userId}`;
   }
 
-  // Local cache is just a fast first paint. The real count is reconciled against
-  // Supabase history below, so clearing localStorage can't be used to dodge the limit.
   function loadDailyUsage(userId: string) {
     const key = getUsageKey(userId);
     const raw = localStorage.getItem(key);
@@ -343,9 +340,6 @@ export default function Home() {
     localStorage.setItem(getUsageKey(userId), JSON.stringify({ date: new Date().toISOString().slice(0, 10), count }));
   }
 
-  // Reconcile usage against actual saved decisions from today — the source of
-  // truth an attacker can't wipe just by clearing browser storage.
-  // Note: true enforcement still belongs server-side in /api/analyze (not provided here).
   function reconcileDailyUsage(userId: string, rows: Result[]) {
     const today = new Date().toISOString().slice(0, 10);
     const todaysCount = rows.filter((r) => (r.createdAt ?? "").slice(0, 10) === today).length;
@@ -357,8 +351,6 @@ export default function Home() {
   }
 
   // ── Streaks ──
-  // Stored in Supabase user_metadata (not localStorage) so the streak survives a
-  // device switch or cleared browser storage — same anti-tamper logic as usage.
   function loadStreakFromMetadata(metadata: Record<string, any> | undefined) {
     const count = typeof metadata?.streakCount === "number" ? metadata.streakCount : 0;
     const lastDate = typeof metadata?.lastAnalysisDate === "string" ? metadata.lastAnalysisDate : null;
@@ -367,10 +359,6 @@ export default function Home() {
     const today = new Date().toISOString().slice(0, 10);
     const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
 
-    // A streak only stays "alive" if the last analysis was today or yesterday.
-    // Anything older means the streak has lapsed even though we haven't written
-    // a reset yet — display it as lapsed without touching stored state until
-    // the user actually analyzes again.
     const isLapsed = lastDate !== null && lastDate !== today && lastDate !== yesterday;
     setStreakCount(isLapsed ? 0 : count);
     setLastAnalysisDate(lastDate);
@@ -378,14 +366,11 @@ export default function Home() {
     setStreakBonusActiveToday(bonusGrantedDate === today);
   }
 
-  // Called after a successful analysis. Returns the bonus-granted flag so the
-  // caller can show a toast, without doing the toast logic itself.
   async function registerStreakProgress(userId: string): Promise<{ newStreak: number; bonusGranted: boolean }> {
     const today = new Date().toISOString().slice(0, 10);
     const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
 
     if (lastAnalysisDate === today) {
-      // Already counted today — no change.
       return { newStreak: streakCount, bonusGranted: false };
     }
 
@@ -460,7 +445,6 @@ export default function Home() {
     if (!currentUserEmail) { setError("Please sign in to analyze decisions."); return; }
     if (!cleanValue) { setError("Please describe a decision before analyzing."); return; }
     
-    // Check if prompt is a conversational placeholder (e.g. "hi", "hello") or way too vague to evaluate
     if (GREETING_PATTERNS.test(cleanValue) || cleanValue.length < 8) {
       setError("This choice cannot be forecasted. Please write a specific scenario or a question (e.g., 'Should I take option A or option B?').");
       setResult(null);
@@ -480,6 +464,9 @@ export default function Home() {
 
     setError(""); setBlockedWarning(false); setLoading(true); setResult(null); setNote(""); setNoteStatus("");
 
+    // Dismiss active mobile software keyboards to optimize visible viewport estate
+    try { (document.activeElement as HTMLElement)?.blur(); } catch {}
+
     try {
       const res = await fetch("/api/analyze", {
         method: "POST",
@@ -489,7 +476,7 @@ export default function Home() {
       const data = await res.json();
       if (!res.ok || data?.error) throw new Error(data?.error ?? "Unable to analyze your decision.");
 
-      const withId: Result = { ...data, id: safeUUID(), createdAt: new Date().toISOString(), originalInput: cleanValue };
+      const withId: Result = { ...data, id: crypto.randomUUID(), createdAt: new Date().toISOString(), originalInput: cleanValue };
       setResult(withId);
       await saveHistory(withId);
 
@@ -503,8 +490,6 @@ export default function Home() {
         const { newStreak, bonusGranted } = await registerStreakProgress(currentUserId);
         if (bonusGranted) {
           setStreakToast(`🔥 ${newStreak}-day streak! You earned 1 bonus analysis for today.`);
-        } else if (newStreak > 1 && newStreak % STREAK_MILESTONE !== 0) {
-          // Quiet day-to-day progress, no toast — only milestones interrupt.
         }
       }
 
@@ -518,7 +503,7 @@ export default function Home() {
     }
   }
 
-  // ── Auth: Sign up ──
+  // ── Auth Methods ──
   async function signup() {
     if (loading) return;
     setError("");
@@ -546,16 +531,13 @@ export default function Home() {
     setLoading(false);
 
     if (signUpError) { setError(signUpError.message ?? JSON.stringify(signUpError)); return; }
-    
     if (data?.user && data.user.identities && data.user.identities.length === 0) {
       setError("An account with this email already exists. Please log in instead.");
       return;
     }
-
     setVerificationStep(true);
   }
 
-  // ── Auth: Verify Email OTP ──
   async function verifyEmailOtp() {
     if (loading) return;
     setError("");
@@ -573,7 +555,6 @@ export default function Home() {
     setAuthEmail(""); setAuthPassword(""); setAuthName(""); setAuthConfirmPassword(""); setAuthOtp("");
   }
 
-  // ── Auth: Log in ──
   async function login() {
     if (loading) return;
     setError("");
@@ -586,16 +567,13 @@ export default function Home() {
     const { error: signInError } = await supabase.auth.signInWithPassword({ email, password: authPassword });
     setLoading(false);
     if (signInError) {
-      setError(signInError.message === "Invalid login credentials"
-        ? "Incorrect email or password."
-        : signInError.message);
+      setError(signInError.message === "Invalid login credentials" ? "Incorrect email or password." : signInError.message);
       return;
     }
     setAuthModal(null);
     setAuthEmail(""); setAuthPassword(""); setAuthName(""); setAuthConfirmPassword("");
   }
 
-  // ── Auth: Log out ──
   async function logout() {
     if (supabase) await supabase.auth.signOut();
     setProfileMenuOpen(false);
@@ -603,14 +581,12 @@ export default function Home() {
     setNote("");
   }
 
-  // ── Auth: Reset password ──
   async function sendResetEmail() {
     if (loading) return;
     setError("");
     if (!supabase) { setError("Authentication is not configured."); return; }
     const email = authEmail.trim().toLowerCase();
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setError("Please enter a valid email address."); return; }
-    
     const cleanOrigin = window.location.origin.replace(/\/$/, "");
 
     setLoading(true);
@@ -622,7 +598,6 @@ export default function Home() {
     setResetEmailSent(true);
   }
 
-  // ── Auth: Execute Final Password Update ──
   async function handleFinalPasswordReset() {
     setError("");
     if (!supabase) return;
@@ -632,9 +607,7 @@ export default function Home() {
     if (authPassword !== authConfirmPassword) { setError("Passwords do not match."); return; }
 
     setLoading(true);
-    const { error: updateError } = await supabase.auth.updateUser({
-      password: authPassword,
-    });
+    const { error: updateError } = await supabase.auth.updateUser({ password: authPassword });
     setLoading(false);
 
     if (updateError) {
@@ -694,7 +667,7 @@ export default function Home() {
     }
   }
 
-  // ── Misc helpers ──
+  // ── Misc Helpers ──
   function handleHistorySelect(item: Result) {
     setResult(item); setText(item.title); setNote(item.note ?? ""); setCopyStatus(""); setNoteStatus("");
     setActiveTab("analyze");
@@ -708,10 +681,9 @@ export default function Home() {
     setNoteStatus("Note saved.");
   }
 
-  // ── Outcome check-ins ──
   function openCheckin(item: Result) {
     setCheckinTarget(item);
-    setCheckinValue(item.regret_score); // anchor the slider near the original prediction
+    setCheckinValue(item.regret_score);
   }
 
   function dismissCheckin(id: string) {
@@ -773,7 +745,6 @@ export default function Home() {
   }
 
   function clearInput() { setText(""); setError(""); }
-
   function formatDate(value?: string) {
     if (!value) return "";
     return new Date(value).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
@@ -805,8 +776,6 @@ export default function Home() {
     return { total, average, latest: history[0]?.createdAt };
   }, [history]);
 
-  // Chronological (oldest → newest) points for the trend chart, capped to the most
-  // recent 30 so the chart stays readable for heavy users.
   const trendPoints = useMemo(() => {
     const sorted = [...history]
       .filter((item) => typeof item.regret_score === "number" && item.createdAt)
@@ -814,7 +783,6 @@ export default function Home() {
     return sorted.slice(-30);
   }, [history]);
 
-  // Decisions old enough to check in on, not yet checked in, not dismissed this session.
   const pendingCheckins = useMemo(() => {
     const cutoff = Date.now() - CHECKIN_ELIGIBLE_DAYS * 86400000;
     return history.filter((item) => {
@@ -825,8 +793,6 @@ export default function Home() {
     });
   }, [history, checkinDismissedIds]);
 
-  // Once enough check-ins exist, show how close predictions tend to be —
-  // this is the number that makes "RegretAI" a credible name over time.
   const predictionAccuracy = useMemo(() => {
     const checkedIn = history.filter((item) => typeof item.actualRegret === "number");
     if (checkedIn.length < 3) return null;
@@ -938,7 +904,7 @@ export default function Home() {
               </section>
             )}
             <div className="mainLayout analyzeLayout">
-              {/* LEFT */}
+              {/* LEFT COLUMN */}
               <div className="inputColumn">
                 <section className="inputCard">
                   <div className="inputHeader">
@@ -963,7 +929,7 @@ export default function Home() {
                       <button 
                         className="secondaryBtn jumpBtn" 
                         type="button" 
-                        onClick={() => resultRef.current?.scrollIntoView({ behavior: "smooth" })}
+                        onClick={() => resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
                       >
                         View Regret Score 👇
                       </button>
@@ -989,18 +955,20 @@ export default function Home() {
                   )}
                   {error && !blockedWarning && <div className="status error">{error}</div>}
                 </section>
-                <section className="tipsCard">
+                
+                {/* On desktop viewports, advice tips show on the left; on mobile they shift below results */}
+                <section className="tipsCard desktopOnlyTips">
                   <h3 className="sectionTitle">💡 Tips for a clearer analysis</h3>
                   <ul className="tipsList">
                     <li><strong>Be specific about the trade-off.</strong> Instead of "Should I move?", try "Should I move from Dallas to Austin for a $15k raise but leave my support network?"</li>
                     <li><strong>Include your time horizon.</strong> Mention whether this is urgent or long-term.</li>
-                    <li><strong>Name what you value.</strong> Add context like "stability matters more to me than income."</li>
+                    <li><strong>Name what you value.</strong> Context like "stability matters more to me than income."</li>
                     <li><strong>State the alternative.</strong> Every decision has an option B — include it.</li>
                   </ul>
                 </section>
               </div>
 
-              {/* RIGHT */}
+              {/* RIGHT COLUMN */}
               <div className="resultColumn" ref={resultRef}>
                 {result ? (
                   <section className="resultSection">
@@ -1032,6 +1000,17 @@ export default function Home() {
                     </div>
                   </div>
                 )}
+
+                {/* Mobile Responsive Structural Reordering: tips show here on mobile views */}
+                <section className="tipsCard mobileOnlyTips" style={{ marginTop: "20px" }}>
+                  <h3 className="sectionTitle">💡 Tips for a clearer analysis</h3>
+                  <ul className="tipsList">
+                    <li><strong>Be specific about the trade-off.</strong> Instead of "Should I move?", try "Should I move from Dallas to Austin for a $15k raise but leave my support network?"</li>
+                    <li><strong>Include your time horizon.</strong> Mention whether this is urgent or long-term.</li>
+                    <li><strong>Name what you value.</strong> Context like "stability matters more to me than income."</li>
+                    <li><strong>State the alternative.</strong> Every decision has an option B — include it.</li>
+                  </ul>
+                </section>
               </div>
             </div>
           </>
@@ -1245,7 +1224,7 @@ export default function Home() {
           </div>
         )}
 
-        {/* ── ════════════ AUTH MODAL ══════════════ */}
+        {/* ── Auth Modals ── */}
         {authModal && (
           <div className="authOverlay" role="dialog" aria-modal="true">
             <div className="authModal">
@@ -1307,9 +1286,7 @@ export default function Home() {
                       <label>Display name<input value={authName} onChange={(e) => setAuthName(e.target.value)} type="text" placeholder="Alex" /></label>
                     )}
                     <label>Email<input value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} type="email" placeholder="you@example.com" /></label>
-                    
                     <label>Password<input value={authPassword} onChange={(e) => setAuthPassword(e.target.value)} type="password" placeholder="••••••••" /></label>
-                    
                     {authModal === "signup" && (
                       <label>Confirm password<input value={authConfirmPassword} onChange={(e) => setAuthConfirmPassword(e.target.value)} type="password" placeholder="••••••••" /></label>
                     )}
@@ -1340,7 +1317,7 @@ export default function Home() {
           </div>
         )}
 
-        {/* ══════════════ BILLING MODAL ══════════════ */}
+        {/* ── Billing Modals ── */}
         {billingModal && (
           <div className="authOverlay" role="dialog" aria-modal="true">
             <div className="billingModal">
@@ -1374,7 +1351,7 @@ export default function Home() {
           </div>
         )}
 
-        {/* ══════════════ CHECK-IN MODAL ══════════════ */}
+        {/* ── Check-in Modals ── */}
         {checkinTarget && (
           <div className="authOverlay" role="dialog" aria-modal="true">
             <div className="authModal checkinModal">

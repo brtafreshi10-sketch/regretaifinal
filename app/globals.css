@@ -1775,3 +1775,15 @@ html.dark .page,
     color: #c7d2fe;
   }
 }
+/* Add these minor additions to your globals.css */
+@media (min-width: 901px) {
+  .mobileOnlyTips {
+    display: none !important;
+  }
+}
+
+@media (max-width: 900px) {
+  .desktopOnlyTips {
+    display: none !important;
+  }
+}
