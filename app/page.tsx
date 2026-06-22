@@ -744,6 +744,26 @@ export default function Home() {
     localStorage.setItem("theme", next ? "dark" : "light");
   }
 
+  // Helper template for clean SVG gear icon
+  function SettingsIcon() {
+    return (
+      <svg 
+        xmlns="http://www.w3.org/2000/svg" 
+        viewBox="0 0 24 24" 
+        fill="none" 
+        stroke="currentColor" 
+        strokeWidth="2" 
+        strokeLinecap="round" 
+        strokeLinejoin="round" 
+        className="svgSettingsGear"
+        style={{ width: 18, height: 18 }}
+      >
+        <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.1a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+        <circle cx="12" cy="12" r="3" />
+      </svg>
+    );
+  }
+
   function clearInput() { setText(""); setError(""); }
   function formatDate(value?: string) {
     if (!value) return "";
@@ -825,7 +845,7 @@ export default function Home() {
             <h1 className="title"><span className="titleEmoji" aria-hidden="true">💀</span>RegretAI</h1>
             <p className="subtitle">See how your choices will impact you in a day, month, or year!</p>
           </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center", position: "relative" }}>
+          <div className="topbarActionGroup" style={{ display: "flex", gap: 10, alignItems: "center", position: "relative" }}>
             {currentUserEmail && streakCount > 0 && (
               <span className="streakBadge" title={`${streakCount}-day streak — analyze again before midnight to keep it going`}>
                 🔥 {streakCount}
@@ -858,7 +878,16 @@ export default function Home() {
                 <button className="primaryBtn" onClick={() => setAuthModal("signup")}>Sign up</button>
               </>
             )}
-            <button className="settingsBtn" onClick={() => setActiveTab("settings")}>⚙️</button>
+            
+            {/* Modernized Settings Icon Button */}
+            <button 
+              className={`modernSettingsBtn ${activeTab === "settings" ? "settingsActive" : ""}`}
+              onClick={() => setActiveTab("settings")}
+              aria-label="Open App Settings"
+              title="Settings"
+            >
+              <SettingsIcon />
+            </button>
           </div>
         </header>
 
@@ -1032,14 +1061,24 @@ export default function Home() {
                 <span className="statLabel">Most recent</span>
                 <strong>{hydrated ? (stats.latest ? formatDate(stats.latest) : "None yet") : "Loading…"}</strong>
               </article>
-              {predictionAccuracy && (
-                <article className="statCard">
-                  <span className="statLabel">Forecast accuracy</span>
-                  <strong>±{predictionAccuracy.avgDelta}%</strong>
-                  <span className="hintText">avg. gap across {predictionAccuracy.count} check-ins</span>
-                </article>
-              )}
+              
+              {/* Modernized Prediction / Delta Card */}
+              <article className="statCard accuracyCard">
+                <span className="statLabel">Forecast accuracy</span>
+                {predictionAccuracy ? (
+                  <>
+                    <strong className="accuracyValue">±{predictionAccuracy.avgDelta}%</strong>
+                    <span className="hintText">Average variance across {predictionAccuracy.count} check-ins</span>
+                  </>
+                ) : (
+                  <div className="accuracyLockBadge">
+                    <span className="lockIcon">🔒</span>
+                    <span className="lockText">Complete 3+ structural outcome check-ins to unlock delta scoring</span>
+                  </div>
+                )}
+              </article>
             </section>
+            
             <section className="historyPanel trendPanel">
               <div className="historyHeader">
                 <div>
@@ -1049,6 +1088,7 @@ export default function Home() {
               </div>
               <RegretTrendChart points={trendPoints} />
             </section>
+            
             <section className="historyPanel">
               <div className="historyHeader">
                 <div>
@@ -1064,14 +1104,32 @@ export default function Home() {
                   <button className="secondaryBtn" type="button" onClick={clearHistory} disabled={history.length === 0}>🗑️ Clear all</button>
                 </div>
               </div>
-              <div className="filterRow">
-                <div className="buttonGroup">
+              
+              {/* Search input is now directly side-by-side with filter pills */}
+              <div className="filterRow modernizedFilterGrid">
+                <div className="buttonGroup categoryButtonGroup">
                   {Object.entries(CATEGORY_LABELS).map(([key, label]) => (
-                    <button key={key} type="button" className={`pill ${categoryFilter === key ? "active" : ""}`} onClick={() => setCategoryFilter(key as typeof categoryFilter)}>{label}</button>
+                    <button 
+                      key={key} 
+                      type="button" 
+                      className={`pill ${categoryFilter === key ? "active" : ""}`} 
+                      onClick={() => setCategoryFilter(key as typeof categoryFilter)}
+                    >
+                      {label}
+                    </button>
                   ))}
                 </div>
-                <input type="search" className="searchInput" placeholder="Search history..." value={historySearch} onChange={(e) => setHistorySearch(e.target.value)} />
+                <div className="searchWrapper flexGrowSearch">
+                  <input 
+                    type="search" 
+                    className="searchInput" 
+                    placeholder="Search past history..." 
+                    value={historySearch} 
+                    onChange={(e) => setHistorySearch(e.target.value)} 
+                  />
+                </div>
               </div>
+              
               <div className="historyList">
                 {historyLoading ? (
                   <div className="emptyState">Loading your decisions…</div>

@@ -1787,3 +1787,24 @@ html.dark .page,
     display: none !important;
   }
 }
+
+/* Specific override to fix Settings Button contrast in Dark Mode */
+html.dark .settingsBtn,
+.page.dark .settingsBtn,
+html.dark button.settingsBtn,
+.page.dark button.settingsBtn {
+  background: rgba(255, 255, 255, 0.15) !important;
+  color: #ffffff !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+}
+
+/* Ensure any internal icon, emoji, or text inside it also respects the color */
+html.dark .settingsBtn *,
+.page.dark .settingsBtn * {
+  color: #ffffff !important;
+}
+
+html.dark .settingsBtn:hover,
+.page.dark .settingsBtn:hover {
+  background: rgba(255, 255, 255, 0.25) !important;
+}
