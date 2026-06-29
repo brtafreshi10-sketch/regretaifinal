@@ -247,22 +247,46 @@ export default function Home() {
     const { data: listener } = supabase.auth.onAuthStateChange(
       (_event: AuthChangeEvent, session: Session | null) => {
         const user = session?.user ?? null;
+
+        if (_event === "PASSWORD_RECOVERY") {
+          // Keep existing user context — just open the reset modal
+          setIsRecoveringPassword(true);
+          setAuthModal("reset-password");
+          setVerificationStep(false);
+          // Re-load history and usage for the current user so nothing is lost
+          if (user) {
+            loadStreakFromMetadata(user.user_metadata);
+            loadHistory(user.id);
+            loadDailyUsage(user.id);
+          }
+          return;
+        }
+
+        if (_event === "USER_UPDATED") {
+          // Password was just updated — refresh user metadata but keep history/usage intact
+          if (user) {
+            setCurrentUserId(user.id);
+            setCurrentUserEmail(user.email ?? null);
+            setCurrentUserName(user.user_metadata?.displayName ?? null);
+            setCurrentUserPaid(Boolean(user.user_metadata?.isPaid));
+            loadStreakFromMetadata(user.user_metadata);
+            // Do NOT call loadHistory or setHistory([]) — keep whatever is already in state
+            loadDailyUsage(user.id);
+          }
+          return;
+        }
+
         setCurrentUserId(user?.id ?? null);
         setCurrentUserEmail(user?.email ?? null);
         setCurrentUserName(user?.user_metadata?.displayName ?? null);
         setCurrentUserPaid(Boolean(user?.user_metadata?.isPaid));
-        
-        if (_event === "PASSWORD_RECOVERY") {
-          setIsRecoveringPassword(true);
-          setAuthModal("reset-password");
-          setVerificationStep(false);
-        }
 
         if (user) {
           loadStreakFromMetadata(user.user_metadata);
           loadHistory(user.id);
           loadDailyUsage(user.id);
         } else {
+          // Signed out — clear local UI state; Supabase retains the data server-side
           setHistory([]);
           setDailyUsage(0);
           setStreakCount(0);
@@ -579,6 +603,7 @@ export default function Home() {
     setProfileMenuOpen(false);
     setResult(null);
     setNote("");
+    setNoteStatus("");
   }
 
   async function sendResetEmail() {
@@ -607,7 +632,7 @@ export default function Home() {
     if (authPassword !== authConfirmPassword) { setError("Passwords do not match."); return; }
 
     setLoading(true);
-    const { error: updateError } = await supabase.auth.updateUser({ password: authPassword });
+    const { data: updatedData, error: updateError } = await supabase.auth.updateUser({ password: authPassword });
     setLoading(false);
 
     if (updateError) {
@@ -619,6 +644,14 @@ export default function Home() {
       setAuthPassword("");
       setAuthConfirmPassword("");
       setError("");
+
+      // Explicitly reload history and usage so the user sees their data immediately
+      const userId = updatedData?.user?.id ?? currentUserId;
+      if (userId) {
+        loadHistory(userId);
+        loadDailyUsage(userId);
+      }
+
       alert("Password updated successfully! Welcome back.");
     }
   }
@@ -1133,8 +1166,12 @@ export default function Home() {
               <div className="historyList">
                 {historyLoading ? (
                   <div className="emptyState">Loading your decisions…</div>
+                ) : !currentUserEmail ? (
+                  <div className="emptyState">Sign in to see your saved decisions.</div>
+                ) : filteredHistory.length === 0 && history.length === 0 ? (
+                  <div className="emptyState">No decisions saved yet. Head to the Analyze tab to get started.</div>
                 ) : filteredHistory.length === 0 ? (
-                  <div className="emptyState">{currentUserEmail ? "No saved decisions match your filters." : "Sign in to see your saved decisions."}</div>
+                  <div className="emptyState">No decisions match your current filters. Try clearing the search or selecting a different category.</div>
                 ) : (
                   filteredHistory.map((item) => (
                     <div key={item.id} className="historyItem">
