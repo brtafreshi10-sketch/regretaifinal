@@ -239,6 +239,9 @@ export default function Home() {
         setCurrentUserName(user.user_metadata?.displayName ?? null);
         setCurrentUserPaid(Boolean(user.user_metadata?.isPaid));
         loadStreakFromMetadata(user.user_metadata);
+        // Show cached history instantly while Supabase loads
+        const cached = loadHistoryCache(user.id);
+        if (cached.length > 0) setHistory(cached);
         loadHistory(user.id);
         loadDailyUsage(user.id);
       }
@@ -291,6 +294,10 @@ export default function Home() {
           setDailyUsage(0);
           setStreakCount(0);
           setLastAnalysisDate(null);
+          // Clear the history cache for the signed-out user
+          if (currentUserId) {
+            try { localStorage.removeItem(getHistoryCacheKey(currentUserId)); } catch {}
+          }
         }
       }
     );
@@ -337,11 +344,33 @@ export default function Home() {
         checkinAt: row.checkin_at ?? undefined,
       }));
       setHistory(rows);
+      saveHistoryCache(userId, rows);
       reconcileDailyUsage(userId, rows);
     } catch (err) {
       console.error("Failed to load history:", err);
     } finally {
       setHistoryLoading(false);
+    }
+  }
+
+  // ── localStorage history cache (instant load on refresh) ──
+  function getHistoryCacheKey(userId: string) {
+    return `regret-history-cache-${userId}`;
+  }
+
+  function saveHistoryCache(userId: string, rows: Result[]) {
+    try {
+      localStorage.setItem(getHistoryCacheKey(userId), JSON.stringify(rows));
+    } catch {}
+  }
+
+  function loadHistoryCache(userId: string): Result[] {
+    try {
+      const raw = localStorage.getItem(getHistoryCacheKey(userId));
+      if (!raw) return [];
+      return JSON.parse(raw) as Result[];
+    } catch {
+      return [];
     }
   }
 
@@ -443,12 +472,20 @@ export default function Home() {
     };
     const { error } = await supabase.from("decisions").upsert(row);
     if (error) console.error("Failed to save decision:", error);
-    setHistory((prev) => [item, ...prev.filter((h) => h.id !== item.id)]);
+    setHistory((prev) => {
+      const next = [item, ...prev.filter((h) => h.id !== item.id)];
+      saveHistoryCache(currentUserId, next);
+      return next;
+    });
   }
 
   // ── Delete a decision ──
   async function deleteItem(id: string) {
-    setHistory((prev) => prev.filter((item) => item.id !== id));
+    setHistory((prev) => {
+      const next = prev.filter((item) => item.id !== id);
+      if (currentUserId) saveHistoryCache(currentUserId, next);
+      return next;
+    });
     if (result?.id === id) { setResult(null); setNote(""); setNoteStatus(""); }
     if (!supabase) return;
     await supabase.from("decisions").delete().eq("id", id);
@@ -458,6 +495,7 @@ export default function Home() {
   async function clearHistory() {
     if (!currentUserId || !supabase) return;
     setHistory([]);
+    saveHistoryCache(currentUserId, []);
     await supabase.from("decisions").delete().eq("user_id", currentUserId);
   }
 
