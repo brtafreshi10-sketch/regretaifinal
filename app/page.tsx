@@ -279,25 +279,32 @@ export default function Home() {
           return;
         }
 
-        setCurrentUserId(user?.id ?? null);
-        setCurrentUserEmail(user?.email ?? null);
-        setCurrentUserName(user?.user_metadata?.displayName ?? null);
-        setCurrentUserPaid(Boolean(user?.user_metadata?.isPaid));
-
-        if (user) {
-          loadStreakFromMetadata(user.user_metadata);
-          loadHistory(user.id);
-          loadDailyUsage(user.id);
-        } else {
-          // Signed out — clear local UI state; Supabase retains the data server-side
+        // Only wipe state on an explicit sign-out — not on INITIAL_SESSION,
+        // TOKEN_REFRESHED, or any other event where user may be transiently null.
+        if (_event === "SIGNED_OUT") {
+          setCurrentUserId(null);
+          setCurrentUserEmail(null);
+          setCurrentUserName(null);
+          setCurrentUserPaid(false);
           setHistory([]);
           setDailyUsage(0);
           setStreakCount(0);
           setLastAnalysisDate(null);
-          // Clear the history cache for the signed-out user
           if (currentUserId) {
             try { localStorage.removeItem(getHistoryCacheKey(currentUserId)); } catch {}
           }
+          return;
+        }
+
+        // SIGNED_IN, INITIAL_SESSION, TOKEN_REFRESHED — restore user and load data
+        if (user) {
+          setCurrentUserId(user.id);
+          setCurrentUserEmail(user.email ?? null);
+          setCurrentUserName(user.user_metadata?.displayName ?? null);
+          setCurrentUserPaid(Boolean(user.user_metadata?.isPaid));
+          loadStreakFromMetadata(user.user_metadata);
+          loadHistory(user.id);
+          loadDailyUsage(user.id);
         }
       }
     );
